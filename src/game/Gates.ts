@@ -26,6 +26,7 @@ export interface Gate {
 }
 
 export interface GatePair {
+  id: number;
   gates: Gate[];
   z: number;
 }
@@ -40,6 +41,7 @@ export interface GateDef {
 export class Gates {
   readonly pairs: GatePair[] = [];
   private free: Gate[] = [];
+  private nextId = 1;
   private postGeo = new THREE.BoxGeometry(0.2, HEIGHT + 0.3, 0.2);
   private barGeo = new THREE.BoxGeometry(1, 0.2, 0.2);
   private panelGeo = new THREE.PlaneGeometry(1, HEIGHT);
@@ -49,8 +51,8 @@ export class Gates {
     for (let i = 0; i < 8; i++) this.free.push(this.create());
   }
 
-  spawnPair(defs: GateDef[], z: number): void {
-    const pair: GatePair = { gates: [], z };
+  spawnPair(defs: GateDef[], z: number, id?: number): GatePair {
+    const pair: GatePair = { id: id ?? this.nextId++, gates: [], z };
     for (const d of defs) {
       const g = this.free.pop() ?? this.create();
       const w = d.x1 - d.x0;
@@ -68,6 +70,7 @@ export class Gates {
       pair.gates.push(g);
     }
     this.pairs.push(pair);
+    return pair;
   }
 
   /** Bullet hit: every `cost` points absorbed raises the gate by one. Returns the gain. */
@@ -106,13 +109,21 @@ export class Gates {
     return null;
   }
 
-  update(dz: number): void {
+  update(dz: number, despawn = true): void {
     for (let i = this.pairs.length - 1; i >= 0; i--) {
       const pair = this.pairs[i];
-      pair.z += dz;
-      for (const g of pair.gates) g.group.position.z = pair.z;
-      if (pair.z > DESPAWN_Z) this.removePair(pair);
+      this.setZ(pair, pair.z + dz);
+      if (despawn && pair.z > DESPAWN_Z) this.removePair(pair);
     }
+  }
+
+  setZ(pair: GatePair, z: number): void {
+    pair.z = z;
+    for (const g of pair.gates) g.group.position.z = z;
+  }
+
+  byId(id: number): GatePair | undefined {
+    return this.pairs.find((p) => p.id === id);
   }
 
   removePair(pair: GatePair): void {
@@ -130,7 +141,7 @@ export class Gates {
     while (this.pairs.length) this.removePair(this.pairs[0]);
   }
 
-  private setValue(g: Gate, v: number): void {
+  setValue(g: Gate, v: number): void {
     g.value = v;
     const good = v > 0;
     const color = good ? GATE_GOOD : GATE_BAD;

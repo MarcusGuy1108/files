@@ -1,24 +1,45 @@
 # Neon Runner
 
-A synthwave 3D squad shooter-runner that runs in any modern browser: phones, tablets and desktops.
+A synthwave 3D squad shooter-runner for one or two players. It runs in any modern browser: phones, tablets and desktops.
 Built with [Three.js](https://threejs.org/), TypeScript and Vite. All geometry is generated in code, so there are no assets to load.
 
 ## Play
 
-Lead a neon squad down the track. Your squad fires on its own, and you steer.
+Lead a neon squad down the track. Your squad fires on its own; you steer.
 
 | Action          | Keyboard          | Touch / mouse              |
 | --------------- | ----------------- | -------------------------- |
 | Steer           | ← → or A D (hold) | Drag left / right anywhere |
-| Pause           | Esc or P          | Pause button               |
+| Pause / menu    | Esc or P          | Pause button               |
 | Start / retry   | Enter or Space    | Tap                        |
 
-- **Gates:** walking through a green **+N** gate adds members and a red **−N** gate removes them. Shooting a gate raises its number, so a red gate can turn green.
+- **Gates:** walk through a green **+N** gate to add members; a red **−N** gate removes them. Shooting a gate raises its number, so a red gate can turn green.
 - **Enemies:** the number over each enemy is its health. If one reaches your squad, you lose that many members.
-- **Firepower:** every member fires, so a bigger squad hits harder.
-- **Boss:** every level ends with one. Beat it to unlock the next level. If it reaches you, you need more members than its remaining health to survive.
-- **Gems:** earned from kills, pickups on the track, and clearing levels. You keep the gems you collected even if your squad is wiped out.
-- **Upgrades:** spend gems on starting **squad size**, **gun power** and **fire rate**. Progress is saved on the device.
+  - **Grunts** (red) and **brutes** (orange) walk straight at you.
+  - **Dashers** (purple, from level 3) are fast and home in on your squad.
+  - **Shield bearers** (blue, from level 4) carry a shield with its own number. It soaks up bullets and protects the enemies behind it until it breaks.
+- **Power-ups:** walk through one to pick it up. **Rapid fire** doubles your fire rate and **double damage** doubles your damage, each for 6 s. **Shield** stops enemies taking members for 8 s.
+- **Boss:** every level ends with one. Beat it to unlock the next level. If it reaches you, it trades its health for your members.
+- **Gems:** enemies sometimes drop gems that you must walk over to collect. There are also gems on the track, and a bonus for beating the boss and clearing the level. You keep the gems you picked up even if your squad is wiped out.
+- **Upgrades:** spend gems on starting **squad size**, **gun power** and **fire rate**. Prices rise with each level you buy.
+- **Sound:** synthwave music and sound effects, all generated in the browser. You can switch music and sound effects off from the menu or the pause screen.
+
+### Co-op
+
+Two players, two squads, one level. Each player steers their own squad and uses their own upgrades. You fight the same enemies, gates and boss together, and the level is cleared for both of you.
+
+1. One player taps **CO-OP → HOST A GAME** and gets a 5-character session code.
+2. The other taps **CO-OP**, enters the code and taps **JOIN**.
+3. The host taps **START**. After each level, the host's **NEXT LEVEL** brings both players into the next one.
+
+If one squad is wiped out, that player watches until the level ends. In co-op the game can't be paused, because the other player is still playing.
+
+How the two browsers connect depends on where the game is running:
+
+- **On the claude.ai link**, it uses claude.ai's real-time rooms. Both players need to be signed in, and the owner has to share the page with the friend from its **Share** menu.
+- **Anywhere else**, it uses a direct WebRTC connection set up through the free public [PeerJS](https://peerjs.com) server. Examples are GitHub Pages or `npm run dev` on your network. No account is needed. Very strict networks (some corporate or school Wi-Fi) can block direct connections.
+
+The host runs the game, and the guest's screen mirrors it about 20 times a second.
 
 ## Develop
 
@@ -29,26 +50,43 @@ npm run build     # type-check + production build into dist/
 npm run preview   # serve the production build
 ```
 
-The build uses relative paths, so you can host the `dist/` folder anywhere static: GitHub Pages, Netlify, itch.io, or an S3 bucket.
+The build uses relative paths, so you can host the `dist/` folder anywhere static.
+
+### Publishing to GitHub Pages
+
+`.github/workflows/deploy.yml` builds and publishes the game on every push. To switch it on, go to the repository's **Settings → Pages → Build and deployment** and set **Source** to **GitHub Actions**, then re-run the workflow or push again. The game is then live at `https://<user>.github.io/<repo>/`.
+
+### Testing co-op on one computer
+
+Open two tabs at `http://localhost:5173/?net=local`. This version connects tabs of the same browser directly, with no network involved. Host in one tab and join in the other.
 
 ## Code map
 
 ```
-src/main.ts            bootstrap + WebGL check
-src/game/Game.ts       state machine, fixed-step loop, firing, collisions, rewards
-src/game/Level.ts      seeded level layout (waves, gates, gems) + difficulty per level
-src/game/Squad.ts      the crowd: formation, steering, count label
-src/game/Bullets.ts    pooled bullets (one instanced draw)
-src/game/Enemies.ts    grunts, brutes and the boss, with health labels
-src/game/Gates.ts      +N / −N gates that rise when shot
-src/game/Gems.ts       gem pickups
-src/game/Effects.ts    hit / kill particles
-src/game/Progress.ts   saved level, gems and upgrade levels; upgrade costs
-src/game/Track.ts      scrolling floor grid + roadside pillars
-src/render/Scene.ts    camera, lights, sky, sun, mountains, bloom, adaptive quality
-src/render/Label.ts    canvas-texture text for in-world numbers
-src/input/Input.ts     drag + held keys → steering; pause / confirm
-src/ui/UI.ts           DOM overlay: HUD, menus, upgrade shop, results
+src/main.ts             bootstrap + WebGL check
+src/game/Game.ts        screens, input, camera, audio, co-op session; drives Sim (solo/host) or Replica (guest)
+src/game/Sim.ts         the game rules: scrolling, spawning, firing, shields, contacts, pickups, boss, rewards
+src/game/Replica.ts     co-op guest: mirrors host snapshots with smoothing and cosmetic bullets
+src/game/World.ts       everything on the track, plus the two players
+src/game/events.ts      events the rules emit (kills, gates, gems…) → effects, sound, rewards, network
+src/game/Level.ts       seeded level layout (waves, rushes, gates, gems, power-ups) + difficulty per level
+src/game/Squad.ts       a squad: formation, steering, count label, shield bubble
+src/game/Enemies.ts     grunts, brutes, dashers, shield bearers and the boss
+src/game/Gates.ts       +N / −N gates that rise when shot
+src/game/Powerups.ts    rapid fire, double damage, shield pickups
+src/game/Gems.ts        gem pickups
+src/game/Bullets.ts     pooled bullets (one instanced draw)
+src/game/Effects.ts     hit / kill particles
+src/game/Progress.ts    saved level, gems, upgrades and sound settings; upgrade costs
+src/game/Track.ts       scrolling floor grid + roadside pillars
+src/net/Channel.ts      co-op transports: claude.ai room, PeerJS (WebRTC), BroadcastChannel (dev)
+src/net/protocol.ts     host/guest messages, compact snapshots and event encoding
+src/audio/Audio.ts      Web Audio synth: sound effects + synthwave music sequencer
+src/render/Scene.ts     camera, lights, bloom, adaptive quality
+src/render/Backdrop.ts  sky dome with stars, striped sun, mountain ridges
+src/render/Label.ts     canvas-texture text for in-world numbers
+src/input/Input.ts      drag + held keys → steering; pause / confirm
+src/ui/UI.ts            DOM overlay: HUD, menus, co-op lobby, upgrade shop, results
 ```
 
 ## Performance notes

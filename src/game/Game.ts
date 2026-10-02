@@ -2,60 +2,64 @@ import * as THREE from 'three';
 import { GameScene } from '../render/Scene';
 import { Input, type Action } from '../input/Input';
 import { UI } from '../ui/UI';
-import { loadSave, persist, upgradeCost, upgradeValue, UPGRADES, type UpgradeId } from './Progress';
-import { Track, TRACK_HALF } from './Track';
-import { Squad } from './Squad';
-import { Bullets } from './Bullets';
-import { Enemies, ENEMY_SPECS, type Enemy } from './Enemies';
-import { Gates, GATE_BAD, GATE_GOOD } from './Gates';
-import { Gems, GEM_COLOR } from './Gems';
-import { Effects } from './Effects';
-import { buildLevel, type LevelPlan } from './Level';
+import { AudioEngine } from '../audio/Audio';
+import { loadSave, persist, statsOf, upgradeCost, UPGRADES, type PlayerStats, type UpgradeId } from './Progress';
+import { TRACK_HALF } from './Track';
+import { World } from './World';
+import { Sim } from './Sim';
+import { Replica } from './Replica';
+import { ENEMY_SPECS, SHIELD_COLOR } from './Enemies';
+import { GATE_BAD, GATE_GOOD } from './Gates';
+import { GEM_COLOR } from './Gems';
+import { POWER_SPECS } from './Powerups';
+import { buildLevel } from './Level';
+import type { GameEvent } from './events';
+import { detectVia, makeCode, normalizeCode, openChannel, NetError, type Channel } from '../net/Channel';
+import { encodeEvent, encodeSnap, type GuestMsg, type HostMsg } from '../net/protocol';
 
-type State = 'menu' | 'shop' | 'playing' | 'paused' | 'dying' | 'result';
-/** run: scrolling through the level. arena: stopped, boss walks in. won: boss down. */
-type Phase = 'run' | 'arena' | 'won';
+type State = 'menu' | 'shop' | 'coop' | 'playing' | 'paused' | 'result';
+/** solo: just you. host: you run the game for both. guest: you mirror the host's game. */
+type Mode = 'solo' | 'host' | 'guest';
 
 const STEP = 1 / 120;
 const MAX_FRAME = 0.1;
 const MENU_SPEED = 8;
-/** How far ahead level content is placed into the world. */
-const SPAWN_AHEAD = 95;
-const BOSS_GAP = 26;
-const MAX_STREAMS = 8;
 const KEY_STEER_SPEED = 11;
-const DYING_TIME = 1.1;
-const WIN_DELAY = 1.3;
 const RESULT_INPUT_LOCK = 0.5;
+const NET_INTERVAL = 0.05;
+/** How long the host keeps re-sending an event, so a dropped update can't lose it. */
+const EVENT_RESEND_MS = 1500;
 
 export class Game {
   private gs: GameScene;
-  private world = new THREE.Group();
-  private track: Track;
-  private squad: Squad;
-  private bullets: Bullets;
-  private enemies: Enemies;
-  private gates: Gates;
-  private gems: Gems;
-  private fx: Effects;
+  private w: World;
+  private sim: Sim;
+  private replica: Replica;
   private ui: UI;
   private input: Input;
+  private audio = new AudioEngine();
 
   private save = loadSave();
-  private plan: LevelPlan = buildLevel(1);
   private state: State = 'menu';
-  private phase: Phase = 'run';
+  private mode: Mode = 'solo';
+  /** Which player this screen controls: 0 in solo or as host, 1 as guest. */
+  private myIdx = 0;
   private stateTime = 0;
-  private phaseTime = 0;
   private time = 0;
-  private distance = 0;
-  private eventIdx = 0;
+  private level = 1;
+  private levelLength = 1;
   private runGems = 0;
-  private fireTimer = 0;
-  private boss: Enemy | null = null;
   private shake = 0;
-  /** How much one bullet raises a gate: a full volley adds `power`, whatever the squad size. */
-  private gatePerBullet = 1;
+
+  // Co-op
+  private channel: Channel | null = null;
+  private partner = false;
+  private run = 0;
+  private netTimer = 0;
+  private eventSeq = 0;
+  private recent: { at: number; a: (number | string)[] }[] = [];
+  private guestMsg: GuestMsg | null = null;
+  private shopReturn: 'menu' | 'result' = 'menu';
 
   private acc = 0;
   private lastFrame = 0;
@@ -65,31 +69,42 @@ export class Game {
 
   constructor(canvas: HTMLCanvasElement) {
     this.gs = new GameScene(canvas);
-    this.gs.scene.add(this.world);
-
-    this.track = new Track(this.world);
-    this.gates = new Gates(this.world);
-    this.enemies = new Enemies(this.world);
-    this.gems = new Gems(this.world);
-    this.squad = new Squad(this.world);
-    this.bullets = new Bullets(this.world);
-    this.fx = new Effects(this.world);
+    this.w = new World(this.gs.scene);
+    this.sim = new Sim(this.w, (e) => this.onSimEvent(e));
+    this.replica = new Replica(this.w, 1, (e) => this.onEvent(e));
+    this.sim.onVolley = this.replica.onVolley = (p) => p === this.myIdx && this.audio.play('shoot');
 
     this.ui = new UI({
       play: () => this.startRun(),
-      next: () => this.startRun(),
+      next: () => this.next(),
       pause: () => this.pause(),
       resume: () => this.resume(),
-      menu: () => this.toMenu(),
+      menu: () => (this.state === 'shop' ? this.closeShop() : this.toMenu()),
       shop: () => this.openShop(),
       buy: (id) => this.buy(id),
+      coop: () => this.openCoop(),
+      host: () => void this.hostCoop(),
+      join: (code) => void this.joinCoop(code),
+      startCoop: () => this.startRun(),
+      toggleMusic: () => this.toggle('music'),
+      toggleSfx: () => this.toggle('sfx'),
     });
     this.input = new Input((a) => this.onAction(a));
+
+    this.audio.setMusicEnabled(this.save.music);
+    this.audio.setSfxEnabled(this.save.sfx);
+    // Browsers only start audio after a user gesture.
+    const unlock = () => this.audio.unlock();
+    window.addEventListener('pointerdown', unlock, { capture: true });
+    window.addEventListener('keydown', unlock, { capture: true });
+    document.getElementById('ui')!.addEventListener('click', (e) => {
+      if ((e.target as HTMLElement).closest('button')) this.audio.play('click');
+    });
 
     window.addEventListener('resize', () => this.gs.resize());
     document.addEventListener('visibilitychange', () => {
       if (!document.hidden) return;
-      this.pause();
+      if (this.mode === 'solo') this.pause();
       persist(this.save);
     });
 
@@ -100,35 +115,46 @@ export class Game {
     requestAnimationFrame(this.frame);
   }
 
-  // ---------- State transitions ----------
-
-  private clearWorld(): void {
-    this.enemies.reset();
-    this.gates.reset();
-    this.gems.clear();
-    this.bullets.clear();
-    this.fx.clear();
-    this.ui.clearPops();
-    this.boss = null;
+  private get me() {
+    return this.w.players[this.myIdx];
   }
 
+  private get inCoop(): boolean {
+    return this.mode !== 'solo';
+  }
+
+  // ---------- Menus ----------
+
   private toMenu(): void {
+    this.leaveCoop();
     persist(this.save);
-    this.clearWorld();
-    this.squad.reset(upgradeValue(this.save, 'squad'));
+    this.w.clear();
+    this.ui.clearPops();
+    this.me.squad.reset(statsOf(this.save).start);
     this.ui.setMenu(this.save);
     this.setState('menu');
     this.ui.show('menu');
+    this.audio.music('menu');
   }
 
   private openShop(): void {
-    if (this.state !== 'shop') {
-      this.clearWorld();
-      this.squad.reset(upgradeValue(this.save, 'squad'));
+    this.shopReturn = this.state === 'result' ? 'result' : 'menu';
+    if (!this.inCoop && this.state !== 'shop') {
+      this.w.clear();
+      this.me.squad.reset(statsOf(this.save).start);
     }
     this.ui.renderShop(this.save);
     this.setState('shop');
     this.ui.show('shop');
+  }
+
+  private closeShop(): void {
+    if (this.shopReturn === 'result') {
+      this.setState('result');
+      this.ui.show('result');
+    } else {
+      this.toMenu();
+    }
   }
 
   private buy(id: UpgradeId): void {
@@ -138,32 +164,24 @@ export class Game {
     this.save.gems -= cost;
     this.save.upgrades[id] = lv + 1;
     persist(this.save);
+    this.audio.play('power', 0.6);
     // Show the bigger squad straight away.
-    if (id === 'squad') this.squad.count = upgradeValue(this.save, 'squad');
+    if (id === 'squad' && !this.inCoop) this.me.squad.count = statsOf(this.save).start;
     this.ui.renderShop(this.save);
   }
 
-  private startRun(): void {
-    this.clearWorld();
-    this.plan = buildLevel(this.save.level);
-    this.squad.reset(upgradeValue(this.save, 'squad'));
-    this.distance = 0;
-    this.eventIdx = 0;
-    this.runGems = 0;
-    this.fireTimer = 0;
-    this.shake = 0;
-    this.setPhase('run');
-    this.ui.startRun(this.plan.level);
-    this.ui.setGems(this.save.gems);
-    this.spawnEvents();
-    this.setState('playing');
-    this.ui.show('playing');
+  private toggle(which: 'music' | 'sfx'): void {
+    this.save[which] = !this.save[which];
+    this.audio.setMusicEnabled(this.save.music);
+    this.audio.setSfxEnabled(this.save.sfx);
+    this.ui.setToggles(this.save.music, this.save.sfx);
+    persist(this.save);
   }
 
   private pause(): void {
     if (this.state !== 'playing') return;
     this.setState('paused');
-    this.ui.show('paused');
+    this.ui.showPause(this.inCoop);
   }
 
   private resume(): void {
@@ -172,27 +190,9 @@ export class Game {
     this.ui.show('playing');
   }
 
-  private finish(won: boolean): void {
-    if (won) {
-      const bonus = 15 + 5 * this.plan.level;
-      this.addGems(bonus);
-      this.save.level = this.plan.level + 1;
-    }
-    persist(this.save);
-    this.ui.setMenu(this.save);
-    this.ui.setBoss(null);
-    this.setState('result');
-    this.ui.showResult(won, this.plan.level, this.distance / this.plan.length, this.runGems);
-  }
-
   private setState(s: State): void {
     this.state = s;
     this.stateTime = 0;
-  }
-
-  private setPhase(p: Phase): void {
-    this.phase = p;
-    this.phaseTime = 0;
   }
 
   private onAction(a: Action): void {
@@ -201,6 +201,9 @@ export class Game {
         if (a === 'confirm') this.startRun();
         break;
       case 'shop':
+        if (a === 'pause') this.closeShop();
+        break;
+      case 'coop':
         if (a === 'pause') this.toMenu();
         break;
       case 'playing':
@@ -210,8 +213,333 @@ export class Game {
         this.resume();
         break;
       case 'result':
-        if (a === 'confirm' && this.stateTime > RESULT_INPUT_LOCK) this.startRun();
+        if (a === 'confirm' && this.stateTime > RESULT_INPUT_LOCK && this.mode !== 'guest') this.next();
         break;
+    }
+  }
+
+  // ---------- Runs ----------
+
+  private next(): void {
+    if (this.mode === 'guest') return;
+    this.startRun();
+  }
+
+  /** Solo, or as co-op host: build the level and run the simulation. */
+  private startRun(): void {
+    if (this.mode === 'guest') return;
+    const coop = this.mode === 'host' && this.partner;
+    if (this.mode === 'host' && !coop) {
+      this.ui.toast('Your friend is not connected, so this level is solo.');
+    }
+    const plan = buildLevel(this.save.level, coop);
+    this.w.setCoop(coop);
+    this.w.setLocalPlayer(0);
+    this.w.players[0].stats = statsOf(this.save);
+    if (coop) this.w.players[1].stats = this.guestStats();
+    this.sim.start(plan);
+    if (coop) this.run++;
+
+    this.level = plan.level;
+    this.levelLength = plan.length;
+    this.beginRunUi();
+  }
+
+  /** Co-op guest: the host started a level; mirror it. */
+  private startGuestRun(level: number, run: number): void {
+    this.run = run;
+    this.w.setCoop(true);
+    this.w.setLocalPlayer(1);
+    this.w.players[1].stats = statsOf(this.save);
+    this.replica.reset();
+    this.w.players[1].squad.reset(statsOf(this.save).start);
+    this.w.players[0].squad.reset(0);
+    this.level = level;
+    this.levelLength = buildLevel(level, true).length;
+    this.beginRunUi();
+  }
+
+  private beginRunUi(): void {
+    this.runGems = 0;
+    this.shake = 0;
+    this.ui.clearPops();
+    this.ui.startRun(this.level);
+    this.ui.setGems(this.save.gems);
+    this.setState('playing');
+    this.ui.show('playing');
+    this.audio.music('run');
+  }
+
+  private finish(won: boolean, progress: number): void {
+    if (won && this.mode !== 'guest') this.save.level = this.level + 1;
+    persist(this.save);
+    this.audio.play(won ? 'win' : 'lose');
+    this.audio.music('menu');
+    this.ui.setMenu(this.save);
+    this.ui.setBoss(null);
+    this.ui.setSpectating(false);
+    this.setState('result');
+    this.ui.showResult(won, this.level, progress, this.runGems, this.mode === 'solo' ? null : this.mode);
+  }
+
+  // ---------- Events: effects, sound, rewards ----------
+
+  private onSimEvent(e: GameEvent): void {
+    if (this.mode === 'host') this.recent.push({ at: performance.now(), a: [++this.eventSeq, ...encodeEvent(e)] });
+    this.onEvent(e);
+  }
+
+  private onEvent(e: GameEvent): void {
+    const fx = this.w.fx;
+    const mine = 'p' in e && e.p === this.myIdx;
+    const squadOf = (p: number) => this.w.players[p]?.squad;
+    switch (e.k) {
+      case 'kill': {
+        const spec = ENEMY_SPECS[e.kind];
+        const big = e.kind === 'brute' || e.kind === 'bearer';
+        fx.burst(e.x, spec.height * 0.5, e.z, spec.color, big ? 20 : 14, big ? 7 : 6);
+        if (e.kind !== 'boss') this.audio.play(big ? 'bigkill' : 'kill');
+        break;
+      }
+      case 'gate': {
+        const sq = squadOf(e.p);
+        const good = e.v > 0;
+        this.popAt(good ? `+${e.v}` : `−${-e.v}`, sq.x, 1.8, 0, good ? 'good' : 'bad');
+        fx.burst(sq.x, 1, 0, good ? GATE_GOOD : GATE_BAD, 16, 6);
+        this.audio.play(good ? 'gateGood' : 'gateBad', mine ? 1 : 0.5);
+        if (mine && !good) this.shake = 0.25;
+        break;
+      }
+      case 'hurt': {
+        const sq = squadOf(e.p);
+        this.popAt(`−${e.loss}`, sq.x, 1.8, 0, 'bad');
+        fx.burst(e.x, 0.8, e.z, ENEMY_SPECS[e.kind].color, 12, 6);
+        this.audio.play('hurt', mine ? 1 : 0.4);
+        if (mine) this.shake = 0.35;
+        break;
+      }
+      case 'block':
+        fx.burst(e.x, 0.8, e.z, SHIELD_COLOR, 14, 6);
+        this.audio.play('block', mine ? 1 : 0.5);
+        break;
+      case 'gem':
+        fx.burst(e.x, 0.6, e.z, GEM_COLOR, 5, 4, 0.1);
+        if (mine) {
+          this.addGems(1);
+          this.audio.play('gem');
+        }
+        break;
+      case 'power': {
+        const sq = squadOf(e.p);
+        this.popAt(POWER_SPECS[e.kind].name, sq.x, 2.4, 0, mine ? 'good' : 'gem');
+        fx.burst(sq.x, 1, 0, POWER_SPECS[e.kind].color, 18, 6);
+        this.audio.play('power', mine ? 1 : 0.5);
+        break;
+      }
+      case 'shieldbreak':
+        fx.burst(e.x, 1, e.z, SHIELD_COLOR, 20, 7);
+        this.audio.play('shieldbreak');
+        break;
+      case 'boss':
+        this.ui.setBoss(1);
+        this.audio.play('boss');
+        this.audio.music('boss');
+        break;
+      case 'arena':
+        break;
+      case 'bossdown':
+        fx.burst(e.x, 2, e.z, ENEMY_SPECS.boss.color, 70, 12, 0.22);
+        fx.burst(e.x, 2, e.z, 0xffd23f, 30, 9);
+        this.ui.setBoss(0);
+        this.audio.play('bossdown');
+        this.shake = 0.6;
+        break;
+      case 'wipe': {
+        const sq = squadOf(e.p);
+        fx.burst(sq.x, 0.6, 0, mine ? 0x29f0ff : 0xc58bff, 30, 8);
+        this.audio.play('wipe', mine ? 1 : 0.5);
+        if (mine) {
+          this.shake = 0.5;
+          if (this.inCoop && this.partnerAlive()) this.ui.setSpectating(true);
+        }
+        break;
+      }
+      case 'reward':
+        if (mine) {
+          this.addGems(e.n);
+          this.popAt(`+${e.n} GEMS`, this.me.squad.x, 2.6, -2, 'gem');
+        }
+        break;
+    }
+  }
+
+  private partnerAlive(): boolean {
+    const p = this.w.players[1 - this.myIdx];
+    return p.active && !p.wiped;
+  }
+
+  private addGems(n: number): void {
+    this.save.gems += n;
+    this.runGems += n;
+    this.ui.setGems(this.save.gems);
+  }
+
+  private popAt(text: string, x: number, y: number, z: number, kind: 'good' | 'bad' | 'gem'): void {
+    const v = this.tmpV.set(x, y, z).project(this.gs.camera);
+    if (v.z > 1) return;
+    this.ui.pop(text, ((v.x + 1) / 2) * window.innerWidth, ((1 - v.y) / 2) * window.innerHeight, kind);
+  }
+
+  // ---------- Co-op session ----------
+
+  private openCoop(): void {
+    this.setState('coop');
+    const note =
+      detectVia() === 'room'
+        ? 'Your friend needs a claude.ai account and access to this page. Share it from the Share menu first.'
+        : 'Your friend opens this same page, taps CO-OP and enters your code.';
+    this.ui.resetCoopBack();
+    this.ui.showCoop(note);
+  }
+
+  private async hostCoop(): Promise<void> {
+    this.ui.setCoopBusy(true, 'host');
+    const code = makeCode();
+    let ch: Channel;
+    try {
+      ch = await openChannel('host', code);
+    } catch (e) {
+      this.coopFailed(e);
+      return;
+    }
+    if (this.state !== 'coop') return ch.close(); // backed out while connecting
+    this.attach(ch, 'host');
+    this.ui.coopSession(code, 'host', this.partner, this.save.level);
+  }
+
+  private async joinCoop(raw: string): Promise<void> {
+    const code = normalizeCode(raw);
+    if (!code) {
+      this.ui.coopError('Codes are 5 letters and numbers, like K7PQ2.');
+      return;
+    }
+    this.ui.setCoopBusy(true, 'join');
+    let ch: Channel;
+    try {
+      ch = await openChannel('guest', code);
+    } catch (e) {
+      this.coopFailed(e);
+      return;
+    }
+    if (this.state !== 'coop') return ch.close();
+    this.attach(ch, 'guest');
+    this.ui.coopSession(code, 'guest', true, 0);
+  }
+
+  private coopFailed(e: unknown): void {
+    this.ui.setCoopBusy(false);
+    this.ui.coopError(e instanceof NetError ? e.message : 'Something went wrong connecting. Try again.');
+    if (!(e instanceof NetError)) console.error(e);
+  }
+
+  private attach(ch: Channel, role: 'host' | 'guest'): void {
+    this.channel = ch;
+    this.mode = role;
+    this.myIdx = role === 'host' ? 0 : 1;
+    this.w.setLocalPlayer(this.myIdx);
+    this.run = 0;
+    this.recent = [];
+    ch.onState((s) => this.onNet(s));
+    ch.onPartner((p) => this.onPartner(p));
+  }
+
+  private leaveCoop(): void {
+    if (!this.channel) return;
+    this.channel.close();
+    this.channel = null;
+    this.mode = 'solo';
+    this.myIdx = 0;
+    this.partner = false;
+    this.guestMsg = null;
+    this.w.setCoop(false);
+    this.w.setLocalPlayer(0);
+  }
+
+  private onPartner(present: boolean): void {
+    const was = this.partner;
+    this.partner = present;
+    if (this.mode === 'host') {
+      if (this.state === 'coop') this.ui.coopSession(this.channel!.code, 'host', present, this.save.level);
+      if (was && !present && this.state !== 'coop') {
+        this.ui.toast('Your friend left. You can keep playing solo.');
+        this.leaveCoop();
+        this.w.setCoop(false);
+      }
+    } else if (this.mode === 'guest' && was && !present) {
+      this.toMenu();
+      this.ui.toast('The host left the game.');
+    }
+  }
+
+  private guestStats(): PlayerStats {
+    // The guest's numbers come from another browser: keep them within sane bounds.
+    const st = this.guestMsg?.st ?? [5, 1, 3];
+    const clamp = (v: unknown, lo: number, hi: number, d: number) => {
+      const n = Number(v);
+      return Number.isFinite(n) ? Math.min(hi, Math.max(lo, n)) : d;
+    };
+    return { start: Math.round(clamp(st[0], 1, 200, 5)), power: clamp(st[1], 0.5, 20, 1), rate: clamp(st[2], 1, 12, 3) };
+  }
+
+  private onNet(raw: unknown): void {
+    if (!raw || typeof raw !== 'object') return;
+    const msg = raw as GuestMsg | HostMsg;
+    if (this.mode === 'host' && msg.r === 'g') {
+      this.guestMsg = msg;
+      if (this.w.players[1].active) this.w.players[1].squad.setTarget(Number(msg.x) || 0);
+    } else if (this.mode === 'guest' && msg.r === 'h') {
+      this.onHostMsg(msg);
+    }
+  }
+
+  private onHostMsg(m: HostMsg): void {
+    const inRun = this.state === 'playing' || this.state === 'paused';
+    if (m.s === 'play') {
+      if (m.run !== this.run) this.startGuestRun(m.lv, m.run);
+      if (m.snap) this.replica.apply(m.snap);
+    } else if (m.s === 'result' && m.run === this.run && inRun) {
+      if (m.snap) this.replica.apply(m.snap);
+      this.finish(m.won === 1, this.replica.distance / this.levelLength);
+    } else if (m.s === 'lobby' && this.state === 'coop') {
+      this.ui.coopSession(this.channel!.code, 'guest', true, m.lv);
+    }
+  }
+
+  private netTick(dt: number): void {
+    const ch = this.channel;
+    if (!ch) return;
+    this.netTimer += dt;
+    if (this.netTimer < NET_INTERVAL) return;
+    this.netTimer = 0;
+
+    if (this.mode === 'host') {
+      const coopRun = this.w.players[1].active;
+      const stage: HostMsg['s'] =
+        coopRun && (this.state === 'playing' || this.state === 'paused')
+          ? 'play'
+          : coopRun && this.state === 'result'
+            ? 'result'
+            : 'lobby';
+      const now = performance.now();
+      this.recent = this.recent.filter((r) => now - r.at < EVENT_RESEND_MS);
+      const msg: HostMsg = { r: 'h', s: stage, lv: stage === 'lobby' ? this.save.level : this.level, run: this.run };
+      if (stage !== 'lobby') msg.snap = encodeSnap(this.sim, this.w, this.recent.map((r) => r.a));
+      if (stage === 'result') msg.won = this.sim.result === 'won' ? 1 : 0;
+      ch.send(msg);
+    } else {
+      const st = statsOf(this.save);
+      const msg: GuestMsg = { r: 'g', x: Math.round(this.me.squad.targetX * 100) / 100, st: [st.start, st.power, st.rate] };
+      ch.send(msg);
     }
   }
 
@@ -227,7 +555,7 @@ export class Game {
     if (this.state === 'playing') {
       // Dragging ~80% of a phone-width screen sweeps the whole track.
       const worldPerPx = (TRACK_HALF * 2) / Math.min(window.innerWidth * 0.8, 560);
-      this.squad.steer(drag * worldPerPx);
+      this.me.squad.steer(drag * worldPerPx);
     }
 
     // Fixed-step simulation keeps gameplay identical at 30, 60 or 120 Hz.
@@ -236,239 +564,47 @@ export class Game {
       this.step(STEP);
       this.acc -= STEP;
     }
+    this.netTick(dt);
 
-    this.bullets.sync();
-    this.gems.sync(this.time);
-    this.fx.sync();
+    this.w.sync(this.time);
     this.updateCamera(dt);
+    this.gs.backdrop.update(now / 1000);
     this.gs.render();
   };
 
   private step(dt: number): void {
     this.stateTime += dt;
-    switch (this.state) {
-      case 'menu':
-      case 'shop':
-        this.time += dt;
-        this.track.update(MENU_SPEED * dt);
-        this.squad.update(dt, this.time, true);
-        break;
-      case 'playing':
-        this.time += dt;
-        this.stepPlaying(dt);
-        break;
-      case 'dying':
-      case 'result':
-        this.time += dt;
-        this.fx.update(dt, 0);
-        this.squad.update(dt, this.time, false);
-        if (this.state === 'dying' && this.stateTime > DYING_TIME) this.finish(false);
-        break;
-    }
-  }
+    // In co-op the game keeps running behind the menu; it can't be paused for both.
+    const running = this.state === 'playing' || (this.state === 'paused' && this.inCoop);
 
-  private stepPlaying(dt: number): void {
-    const plan = this.plan;
-    this.phaseTime += dt;
-
-    let dz = 0;
-    if (this.phase === 'run') {
-      dz = plan.speed * dt;
-      if (this.distance + dz >= plan.length) {
-        // Arrived at the arena: stop scrolling and let the boss come to us.
-        dz = plan.length - this.distance;
-        this.setPhase('arena');
-        if (this.boss) this.boss.walking = true;
-      }
-    }
-    this.distance += dz;
-
-    this.squad.steer(this.input.keyAxis * KEY_STEER_SPEED * dt);
-    this.track.update(dz);
-    this.gates.update(dz);
-    this.gems.update(dz);
-    this.enemies.update(dt, dz, this.time);
-    this.fx.update(dt, dz);
-    this.spawnEvents();
-    this.squad.update(dt, this.time, this.phase === 'run');
-
-    if (this.phase !== 'won') this.fire(dt);
-    this.bullets.advance(dt);
-    this.resolveBullets();
-    this.resolveContacts();
-
-    this.ui.setProgress(this.distance / plan.length);
-    if (this.boss) this.ui.setBoss(this.boss.hp / this.boss.maxHp);
-
-    if (this.phase === 'won' && this.phaseTime > WIN_DELAY) {
-      this.finish(true);
-    } else if (this.squad.count <= 0) {
-      this.die();
-    }
-  }
-
-  /** Place level content into the world as it comes within range. */
-  private spawnEvents(): void {
-    const { events } = this.plan;
-    while (this.eventIdx < events.length && events[this.eventIdx].at - this.distance < SPAWN_AHEAD) {
-      const ev = events[this.eventIdx++];
-      const z = -(ev.at - this.distance);
-      if (ev.type === 'wave') {
-        for (const e of ev.enemies) this.enemies.spawn(e.kind, e.x, z + e.dz, e.hp);
-      } else if (ev.type === 'gates') {
-        this.gates.spawnPair(ev.gates, z);
+    if (running) {
+      this.time += dt;
+      this.me.squad.steer(this.input.keyAxis * KEY_STEER_SPEED * dt);
+      if (this.mode === 'guest') {
+        this.replica.step(dt, this.time);
+        this.ui.setProgress(this.replica.distance / this.levelLength);
+        if (this.replica.boss) this.ui.setBoss(this.replica.boss.hp / this.replica.boss.max);
       } else {
-        for (const g of ev.gems) this.gems.spawn(g.x, z + g.dz);
+        this.sim.step(dt, this.time);
+        this.ui.setProgress(this.sim.distance / this.levelLength);
+        if (this.sim.boss) this.ui.setBoss(this.sim.boss.hp / this.sim.boss.maxHp);
+        if (this.sim.result) this.finish(this.sim.result === 'won', this.sim.distance / this.levelLength);
       }
+      this.ui.setPowers(this.me.pw);
+    } else if (this.state === 'menu' || (this.state === 'shop' && !this.inCoop) || this.state === 'coop') {
+      this.time += dt;
+      this.w.track.update(MENU_SPEED * dt);
+      this.me.squad.update(dt, this.time, true);
+    } else if (this.state === 'result' || this.state === 'shop') {
+      this.time += dt;
+      this.w.fx.update(dt, 0);
+      for (const p of this.w.players) if (p.active) p.squad.update(dt, this.time, false);
     }
-    const bossAt = this.plan.length + BOSS_GAP;
-    if (!this.boss && this.phase === 'run' && bossAt - this.distance < SPAWN_AHEAD) {
-      this.boss = this.enemies.spawn('boss', 0, -(bossAt - this.distance), this.plan.bossHp);
-      this.ui.setBoss(1);
-    }
-  }
-
-  private fire(dt: number): void {
-    if (this.squad.count <= 0) return;
-    const interval = 1 / upgradeValue(this.save, 'rate');
-    this.fireTimer += dt;
-    while (this.fireTimer >= interval) {
-      this.fireTimer -= interval;
-      this.volley();
-    }
-  }
-
-  /** Every member fires; past MAX_STREAMS bullets the extra firepower goes into damage. */
-  private volley(): void {
-    const vis = this.squad.visible;
-    const streams = Math.min(vis, MAX_STREAMS);
-    const power = upgradeValue(this.save, 'power');
-    const dmg = (power * this.squad.count) / streams;
-    this.gatePerBullet = power / streams;
-    for (let k = 0; k < streams; k++) {
-      const i = Math.floor(((k + 0.5) * vis) / streams);
-      this.bullets.spawn(this.squad.memberX(i), this.squad.memberZ(i) - 0.4, dmg);
-    }
-  }
-
-  private resolveBullets(): void {
-    const b = this.bullets;
-    for (let i = b.n - 1; i >= 0; i--) {
-      const x = b.x[i];
-      const z = b.z[i];
-
-      const gate = this.gates.bulletHit(x, z);
-      if (gate) {
-        if (this.gates.hit(gate, this.gatePerBullet, this.plan.gateCost) > 0) {
-          this.fx.burst(x, 1.2, z + 0.2, gate.value > 0 ? GATE_GOOD : GATE_BAD, 3, 3, 0.12);
-        }
-        b.remove(i);
-        continue;
-      }
-
-      for (const e of this.enemies.active) {
-        const p = e.group.position;
-        const r = ENEMY_SPECS[e.kind].radius;
-        if (Math.abs(x - p.x) < r && Math.abs(z - p.z) < r + 0.2) {
-          const dmg = b.dmg[i];
-          b.remove(i);
-          if (this.enemies.damage(e, dmg)) this.kill(e);
-          break;
-        }
-      }
-    }
-  }
-
-  private kill(e: Enemy): void {
-    const p = e.group.position;
-    const spec = ENEMY_SPECS[e.kind];
-    this.fx.burst(p.x, spec.height * 0.5, p.z, spec.color, e.kind === 'boss' ? 60 : 14, e.kind === 'boss' ? 12 : 6);
-    this.enemies.release(e);
-    if (e === this.boss) {
-      this.boss = null;
-      this.ui.setBoss(0);
-      this.setPhase('won');
-      const reward = 10 + 5 * this.plan.level;
-      this.addGems(reward);
-      this.popAt(`+${reward}`, p.x, spec.height, p.z, 'gem');
-      return;
-    }
-    this.addGems(spec.gems);
-    this.fx.burst(p.x, 0.8, p.z, GEM_COLOR, 4, 4, 0.12);
-    this.popAt(`+${spec.gems}`, p.x, spec.height, p.z, 'gem');
-  }
-
-  private resolveContacts(): void {
-    const sx = this.squad.x;
-    const r = this.squad.radius;
-
-    // Gates: the one the squad's centre walks through applies its number.
-    for (let i = this.gates.pairs.length - 1; i >= 0; i--) {
-      const pair = this.gates.pairs[i];
-      if (pair.z < -0.2) continue;
-      const g = this.gates.gateAt(pair, sx);
-      if (g) {
-        this.squad.add(g.value);
-        this.popAt(g.value > 0 ? `+${g.value}` : `−${-g.value}`, sx, 1.8, 0, g.value > 0 ? 'good' : 'bad');
-        this.fx.burst(sx, 1, 0, g.value > 0 ? GATE_GOOD : GATE_BAD, 16, 6);
-        if (g.value < 0) this.shake = 0.25;
-      }
-      this.gates.removePair(pair);
-    }
-
-    // Enemies that reach the squad take members equal to their remaining health.
-    for (let i = this.enemies.active.length - 1; i >= 0; i--) {
-      const e = this.enemies.active[i];
-      const p = e.group.position;
-      const er = ENEMY_SPECS[e.kind].radius;
-      if (p.z < -(er + r * 0.6)) continue;
-      if (Math.abs(p.x - sx) > r + er) continue;
-      const loss = Math.ceil(e.hp);
-      this.squad.add(-loss);
-      this.popAt(`−${loss}`, sx, 1.8, 0, 'bad');
-      this.shake = 0.35;
-      if (e === this.boss && this.squad.count > 0) {
-        // Enough members left to overwhelm the boss.
-        this.kill(e);
-      } else {
-        this.fx.burst(p.x, 0.8, p.z, ENEMY_SPECS[e.kind].color, 12, 6);
-        if (e === this.boss) this.boss = null;
-        this.enemies.release(e);
-      }
-    }
-
-    // Gem pickups
-    const gems = this.gems;
-    for (let i = gems.n - 1; i >= 0; i--) {
-      if (Math.abs(gems.z[i]) < 0.9 && Math.abs(gems.x[i] - sx) < r + 0.3) {
-        this.fx.burst(gems.x[i], 0.6, gems.z[i], GEM_COLOR, 5, 4, 0.1);
-        gems.remove(i);
-        this.addGems(1);
-      }
-    }
-  }
-
-  private die(): void {
-    this.fx.burst(this.squad.x, 0.6, 0, 0x29f0ff, 30, 8);
-    this.shake = 0.5;
-    this.setState('dying');
-  }
-
-  private addGems(n: number): void {
-    this.save.gems += n;
-    this.runGems += n;
-    this.ui.setGems(this.save.gems);
-  }
-
-  private popAt(text: string, x: number, y: number, z: number, kind: 'good' | 'bad' | 'gem'): void {
-    const v = this.tmpV.set(x, y, z).project(this.gs.camera);
-    if (v.z > 1) return;
-    this.ui.pop(text, ((v.x + 1) / 2) * window.innerWidth, ((1 - v.y) / 2) * window.innerHeight, kind);
   }
 
   private updateCamera(dt: number): void {
     const cam = this.gs.camera;
-    const sx = this.squad.x;
+    const sx = this.me.squad.x;
     cam.position.set(sx * 0.35, 6.8, 8.6);
     if (this.shake > 0) {
       this.shake = Math.max(0, this.shake - dt);

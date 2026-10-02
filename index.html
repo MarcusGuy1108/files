@@ -27,6 +27,8 @@
           <div class="gems-chip"><span class="gem-icon"></span><span id="hud-gems">0</span></div>
           <button id="btn-pause" class="icon-btn" aria-label="Pause">&#10074;&#10074;</button>
         </div>
+        <div id="hud-powers" class="powers"></div>
+        <div id="spectate" class="banner hidden">SQUAD DOWN · WATCHING YOUR PARTNER</div>
         <div id="boss-bar" class="boss-bar hidden">
           <span class="label">BOSS</span>
           <div class="bar"><div id="boss-fill" class="bar-fill"></div></div>
@@ -39,7 +41,12 @@
         <p class="level-line">LEVEL <span id="menu-level">1</span></p>
         <div class="stack">
           <button id="btn-play" class="btn">PLAY</button>
+          <button id="btn-coop" class="btn btn-ghost">CO-OP</button>
           <button id="btn-shop" class="btn btn-ghost">UPGRADES</button>
+        </div>
+        <div class="toggles">
+          <button class="toggle tgl-music" aria-pressed="true">MUSIC</button>
+          <button class="toggle tgl-sfx" aria-pressed="true">SOUND FX</button>
         </div>
         <div class="controls">
           <p class="ctl-touch">Drag left and right to steer. Your squad fires on its own.</p>
@@ -55,11 +62,39 @@
         <button id="btn-shop-back" class="btn btn-ghost">BACK</button>
       </section>
 
+      <section id="screen-coop" class="screen hidden">
+        <h2 class="heading">CO-OP</h2>
+        <div id="coop-choose" class="stack">
+          <p class="sub">Play the same level with a friend. Each of you steers your own squad.</p>
+          <button id="btn-host" class="btn">HOST A GAME</button>
+          <p class="or">or join with a code</p>
+          <form id="join-form" class="join-row">
+            <input id="join-code" maxlength="5" placeholder="CODE" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="Session code" />
+            <button id="btn-join" class="btn btn-ghost" type="submit">JOIN</button>
+          </form>
+          <p id="coop-note" class="note"></p>
+        </div>
+        <div id="coop-session" class="stack hidden">
+          <span class="label">SESSION CODE</span>
+          <div id="coop-code" class="code">-----</div>
+          <button id="btn-copy" class="btn-small">COPY CODE</button>
+          <p id="coop-status" class="sub">Waiting for your friend to join…</p>
+          <button id="btn-coop-start" class="btn" disabled>START LEVEL <span id="coop-level">1</span></button>
+        </div>
+        <p id="coop-error" class="error hidden" role="alert"></p>
+        <button id="btn-coop-back" class="btn btn-ghost">BACK</button>
+      </section>
+
       <section id="screen-pause" class="screen hidden">
-        <h2 class="heading">PAUSED</h2>
+        <h2 id="pause-title" class="heading">PAUSED</h2>
+        <p id="pause-note" class="sub hidden">Co-op keeps running while this menu is open.</p>
         <div class="stack">
           <button id="btn-resume" class="btn">RESUME</button>
           <button id="btn-quit" class="btn btn-ghost">MAIN MENU</button>
+        </div>
+        <div class="toggles">
+          <button class="toggle tgl-music" aria-pressed="true">MUSIC</button>
+          <button class="toggle tgl-sfx" aria-pressed="true">SOUND FX</button>
         </div>
       </section>
 
@@ -67,6 +102,7 @@
         <h2 id="result-title" class="heading">LEVEL 1 CLEARED</h2>
         <p id="result-sub" class="sub"></p>
         <div class="gems-chip big">+<span id="result-gems">0</span><span class="gem-icon"></span></div>
+        <p id="result-wait" class="sub hidden">Waiting for the host to start the next level…</p>
         <div class="stack">
           <button id="btn-next" class="btn">NEXT LEVEL</button>
           <button id="btn-result-shop" class="btn btn-ghost">UPGRADES</button>
@@ -74,6 +110,8 @@
         </div>
       </section>
     </div>
+
+    <div id="toast" class="toast hidden" role="status"></div>
 
     <div id="nowebgl" hidden>
       <p>Neon Runner needs WebGL, which isn't available in this browser.<br />Try a recent version of Chrome, Safari, Firefox or Edge.</p>

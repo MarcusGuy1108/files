@@ -10,25 +10,37 @@ const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 const STEER_SMOOTHING = 22;
 
 /** The player's crowd: a formation of members that moves left and right as one. */
+export interface SquadLook {
+  body: number;
+  emissive: number;
+  border: string;
+}
+
+export const LOOK_SELF: SquadLook = { body: 0x3fd2ff, emissive: 0x062a38, border: '#29f0ff' };
+export const LOOK_PARTNER: SquadLook = { body: 0xc58bff, emissive: 0x2a0c40, border: '#c58bff' };
+
 export class Squad {
   count = 0;
   x = 0;
-  private targetX = 0;
+  targetX = 0;
   private shown = 0;
+  private group = new THREE.Group();
+  private bodyMat: THREE.MeshLambertMaterial;
+  private bubble: THREE.Mesh;
 
   private bodies: THREE.InstancedMesh;
   private guns: THREE.InstancedMesh;
   /** Current formation offsets (x, z) per member; they ease towards the target slots. */
   private offsets = new Float32Array(MAX_VISIBLE * 2);
   private dummy = new THREE.Object3D();
-  private label = new TextLabel(256, 128, { bg: 'rgba(8, 20, 40, 0.85)', border: '#29f0ff' });
+  private label: TextLabel;
   private labelSprite: THREE.Sprite;
 
-  constructor(parent: THREE.Object3D) {
+  constructor(parent: THREE.Object3D, look: SquadLook = LOOK_SELF) {
     const bodyGeo = new THREE.CapsuleGeometry(0.15, 0.36, 3, 8);
     bodyGeo.translate(0, 0.34, 0);
-    const bodyMat = new THREE.MeshLambertMaterial({ color: 0x3fd2ff, emissive: 0x062a38 });
-    this.bodies = new THREE.InstancedMesh(bodyGeo, bodyMat, MAX_VISIBLE);
+    this.bodyMat = new THREE.MeshLambertMaterial({ color: look.body, emissive: look.emissive });
+    this.bodies = new THREE.InstancedMesh(bodyGeo, this.bodyMat, MAX_VISIBLE);
 
     const gunGeo = new THREE.BoxGeometry(0.07, 0.07, 0.34);
     gunGeo.translate(0.13, 0.42, -0.18);
@@ -37,11 +49,35 @@ export class Squad {
     for (const m of [this.bodies, this.guns]) {
       m.count = 0;
       m.frustumCulled = false;
-      parent.add(m);
+      this.group.add(m);
     }
 
+    // Shield power-up: a translucent dome over the formation.
+    this.bubble = new THREE.Mesh(
+      new THREE.SphereGeometry(1, 24, 12, 0, Math.PI * 2, 0, Math.PI / 2),
+      new THREE.MeshBasicMaterial({ color: 0x4d9cff, transparent: true, opacity: 0.22, depthWrite: false }),
+    );
+    this.bubble.visible = false;
+    this.group.add(this.bubble);
+
+    this.label = new TextLabel(256, 128, { bg: 'rgba(8, 20, 40, 0.85)', border: look.border });
     this.labelSprite = labelSprite(this.label, 1.5, 0.75);
-    parent.add(this.labelSprite);
+    this.group.add(this.labelSprite);
+    parent.add(this.group);
+  }
+
+  setLook(look: SquadLook): void {
+    this.bodyMat.color.setHex(look.body);
+    this.bodyMat.emissive.setHex(look.emissive);
+    this.label.setBorder(look.border);
+  }
+
+  setVisible(v: boolean): void {
+    this.group.visible = v;
+  }
+
+  setShield(on: boolean): void {
+    this.bubble.visible = on;
   }
 
   get visible(): number {
@@ -66,8 +102,12 @@ export class Squad {
   }
 
   steer(dx: number): void {
+    this.setTarget(this.targetX + dx);
+  }
+
+  setTarget(x: number): void {
     const lim = TRACK_HALF - 0.5;
-    this.targetX = THREE.MathUtils.clamp(this.targetX + dx, -lim, lim);
+    this.targetX = THREE.MathUtils.clamp(x, -lim, lim);
   }
 
   /** World position of member `i`, used as a muzzle for bullets. */
@@ -113,6 +153,11 @@ export class Squad {
     this.label.set(String(this.count));
     this.labelSprite.visible = this.count > 0;
     this.labelSprite.position.set(this.x, 1.5, -this.radius * 0.6);
+    if (this.bubble.visible) {
+      const r = this.radius + 0.5;
+      this.bubble.position.set(this.x, 0, 0);
+      this.bubble.scale.set(r, r * 0.8, r);
+    }
   }
 
   private memberWorldX(offset: number): number {

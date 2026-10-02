@@ -37,6 +37,11 @@ export class TextLabel {
     all.add(this);
   }
 
+  setBorder(color: string): void {
+    this.style = { ...this.style, border: color };
+    this.redraw();
+  }
+
   set(text: string, color = this.color): void {
     if (text === this.text && color === this.color) return;
     this.text = text;

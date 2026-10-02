@@ -15,6 +15,8 @@ export class Bullets {
   readonly x = new Float32Array(MAX);
   readonly z = new Float32Array(MAX);
   readonly dmg = new Float32Array(MAX);
+  /** Which player fired it (0 or 1). */
+  readonly owner = new Uint8Array(MAX);
   private travel = new Float32Array(MAX);
   private mesh: THREE.InstancedMesh;
   private dummy = new THREE.Object3D();
@@ -27,12 +29,13 @@ export class Bullets {
     parent.add(this.mesh);
   }
 
-  spawn(x: number, z: number, dmg: number): void {
+  spawn(x: number, z: number, dmg: number, owner = 0): void {
     if (this.n >= MAX) return;
     const i = this.n++;
     this.x[i] = x;
     this.z[i] = z;
     this.dmg[i] = dmg;
+    this.owner[i] = owner;
     this.travel[i] = 0;
   }
 
@@ -51,6 +54,7 @@ export class Bullets {
     this.x[i] = this.x[last];
     this.z[i] = this.z[last];
     this.dmg[i] = this.dmg[last];
+    this.owner[i] = this.owner[last];
     this.travel[i] = this.travel[last];
   }
 

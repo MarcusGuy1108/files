@@ -6,6 +6,7 @@
   --gem: #3dffa8;
   --good: #22ff88;
   --bad: #ff3355;
+  --violet: #c58bff;
   --bg: #0b0216;
   --text: #f6e9ff;
   --font: 'Orbitron', 'Segoe UI', system-ui, -apple-system, sans-serif;
@@ -491,6 +492,216 @@ body {
   }
   .upgrade {
     padding: 8px 12px;
+  }
+}
+
+/* ---------- Power-ups, banners, toasts ---------- */
+
+.powers {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 8px;
+}
+
+.power-chip {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  padding: 4px 10px;
+  border-radius: 999px;
+  border: 1px solid currentColor;
+  background: rgba(8, 2, 20, 0.75);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  font-variant-numeric: tabular-nums;
+}
+
+.power-chip .meter {
+  width: 46px;
+  height: 5px;
+  border-radius: 3px;
+  background: rgba(255, 255, 255, 0.15);
+  overflow: hidden;
+}
+
+.power-chip .meter i {
+  display: block;
+  height: 100%;
+  background: currentColor;
+}
+
+.banner {
+  padding: 6px 14px;
+  border-radius: 10px;
+  background: rgba(8, 2, 20, 0.8);
+  border: 1px solid var(--violet);
+  color: var(--violet);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+}
+
+.toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(24px + env(safe-area-inset-bottom));
+  transform: translateX(-50%);
+  max-width: min(92vw, 440px);
+  padding: 12px 18px;
+  border-radius: 12px;
+  background: rgba(14, 6, 32, 0.95);
+  border: 1px solid var(--cyan);
+  color: var(--text);
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+  text-align: center;
+  pointer-events: none;
+  z-index: 10;
+}
+
+.toggles {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+}
+
+.toggle {
+  min-height: 40px;
+  padding: 6px 14px;
+  border-radius: 999px;
+  border: 1px solid rgba(255, 255, 255, 0.35);
+  background: rgba(8, 2, 20, 0.6);
+  color: var(--text);
+  font-family: var(--font);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  cursor: pointer;
+}
+
+.toggle[aria-pressed='true'] {
+  border-color: var(--cyan);
+  color: var(--cyan);
+  box-shadow: 0 0 8px rgba(41, 240, 255, 0.4);
+}
+
+.toggle[aria-pressed='false'] {
+  text-decoration: line-through;
+  opacity: 0.7;
+}
+
+.toggle:focus-visible,
+.btn-small:focus-visible,
+#join-code:focus-visible {
+  outline: 2px solid var(--yellow);
+  outline-offset: 2px;
+}
+
+/* ---------- Co-op ---------- */
+
+.or {
+  margin: 0;
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 13px;
+  opacity: 0.7;
+}
+
+.join-row {
+  display: flex;
+  gap: 10px;
+  justify-content: center;
+  flex-wrap: wrap;
+}
+
+.join-row .btn {
+  min-width: 120px;
+}
+
+/* iOS Safari won't let you type into a field whose ancestors disable text selection. */
+input {
+  -webkit-user-select: text;
+  user-select: text;
+  touch-action: manipulation;
+}
+
+#join-code {
+  width: 170px;
+  min-height: 52px;
+  padding: 8px 14px;
+  border-radius: 14px;
+  border: 2px solid var(--cyan);
+  background: rgba(8, 2, 20, 0.8);
+  color: #fff;
+  font-family: var(--font);
+  font-size: 22px;
+  font-weight: 800;
+  letter-spacing: 0.3em;
+  text-align: center;
+  text-transform: uppercase;
+}
+
+#join-code::placeholder {
+  color: rgba(255, 255, 255, 0.35);
+}
+
+.code {
+  font-size: clamp(40px, 12vw, 64px);
+  font-weight: 800;
+  letter-spacing: 0.25em;
+  padding-left: 0.25em;
+  color: var(--yellow);
+  text-shadow: 0 0 12px var(--yellow);
+  user-select: all;
+  -webkit-user-select: all;
+}
+
+.btn-small {
+  min-height: 36px;
+  padding: 6px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--cyan);
+  background: transparent;
+  color: var(--cyan);
+  font-family: var(--font);
+  font-size: 12px;
+  font-weight: 800;
+  letter-spacing: 0.12em;
+  cursor: pointer;
+}
+
+.note {
+  max-width: 400px;
+  margin: 0;
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 13px;
+  line-height: 1.5;
+  opacity: 0.75;
+}
+
+.error {
+  max-width: 400px;
+  margin: 0;
+  padding: 10px 14px;
+  border-radius: 10px;
+  border: 1px solid var(--bad);
+  background: rgba(255, 51, 85, 0.12);
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 14px;
+}
+
+.btn:disabled {
+  opacity: 0.45;
+  cursor: default;
+  transform: none;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .pop,
+  .gems-chip.pulse,
+  .new-best {
+    animation-duration: 0.01s;
   }
 }
 

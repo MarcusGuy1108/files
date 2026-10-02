@@ -55,12 +55,16 @@ export class Track {
           float edgeW = max(fwidth(vPos.x) * 1.5, 0.06);
           float edge = 1.0 - smoothstep(0.0, edgeW, abs(ax - uEdgeX));
 
-          // Lines stay subtle on the road so the squad, enemies and gates read clearly.
+          // Fade lines out once a cell shrinks to a few pixels; that is where moire starts.
+          line *= 1.0 - smoothstep(0.18, 0.45, max(w.x, w.y));
+          // Lines stay subtle on the road so the squad, enemies and gates read clearly;
+          // off the road they fade out sooner.
           float dist = -vPos.z;
-          line *= (1.0 - smoothstep(25.0, 110.0, dist)) * mix(0.9, 0.35, onRoad);
+          float reach = mix(70.0, 120.0, onRoad);
+          line *= (1.0 - smoothstep(20.0, reach, dist)) * mix(0.55, 0.35, onRoad);
           vec3 col = mix(uOff, uRoad, onRoad) + uLine * line;
           col = mix(col, uEdge * 1.2, edge * (1.0 - smoothstep(60.0, 170.0, dist)));
-          float fade = smoothstep(40.0, 190.0, dist);
+          float fade = smoothstep(30.0, 175.0, dist);
           gl_FragColor = vec4(mix(col, uHorizon, fade), 1.0);
           #include <colorspace_fragment>
         }`,
