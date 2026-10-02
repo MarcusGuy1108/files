@@ -13,8 +13,8 @@ export const COLORS = {
 };
 
 /** Horizontal field of view we try to keep, so all three lanes fit on narrow portrait screens. */
-const MIN_HFOV_DEG = 44; // the camera follows the player sideways, so this only needs ~2 lanes
-const BASE_VFOV_DEG = 62;
+const MIN_HFOV_DEG = 56; // keeps the whole track width in view on tall phones
+const BASE_VFOV_DEG = 55;
 
 export function isWebGLAvailable(): boolean {
   try {
@@ -41,18 +41,24 @@ export class GameScene {
     this.renderer.outputColorSpace = THREE.SRGBColorSpace;
 
     this.camera = new THREE.PerspectiveCamera(BASE_VFOV_DEG, 1, 0.1, 320);
-    this.camera.position.set(0, 3.4, 6.5);
-    this.camera.lookAt(0, 1.2, -8);
+    this.camera.position.set(0, 6.8, 8.6);
+    this.camera.lookAt(0, 0, -14);
 
     this.scene.background = makeSkyTexture();
-    this.scene.fog = new THREE.Fog(COLORS.horizon, 45, 170);
+    this.scene.fog = new THREE.Fog(COLORS.horizon, 60, 150);
+
+    // Solid, lit models read far better against the neon floor than outlines alone.
+    this.scene.add(new THREE.HemisphereLight(0xd9ccff, 0x2a1040, 1.6));
+    const sun = new THREE.DirectionalLight(0xffffff, 2.2);
+    sun.position.set(3, 10, 8);
+    this.scene.add(sun);
 
     this.buildSun();
     this.buildMountains();
 
     this.composer = new EffectComposer(this.renderer);
     this.composer.addPass(new RenderPass(this.scene, this.camera));
-    this.bloomPass = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.75, 0.35, 0.35);
+    this.bloomPass = new UnrealBloomPass(new THREE.Vector2(256, 256), 0.6, 0.3, 0.55);
     this.composer.addPass(this.bloomPass);
     this.composer.addPass(new OutputPass());
 
@@ -126,8 +132,8 @@ export class GameScene {
           #include <colorspace_fragment>
         }`,
     });
-    const sun = new THREE.Mesh(new THREE.PlaneGeometry(110, 110), mat);
-    sun.position.set(0, 34, -260);
+    const sun = new THREE.Mesh(new THREE.PlaneGeometry(72, 72), mat);
+    sun.position.set(0, 21, -260);
     sun.renderOrder = -1;
     this.scene.add(sun);
   }

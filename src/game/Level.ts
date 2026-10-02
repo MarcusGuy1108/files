@@ -1,0 +1,129 @@
+import type { EnemyKind } from './Enemies';
+import type { GateDef } from './Gates';
+import { TRACK_HALF } from './Track';
+
+export type LevelEvent =
+  | { at: number; type: 'wave'; enemies: { kind: EnemyKind; x: number; dz: number; hp: number }[] }
+  | { at: number; type: 'gates'; gates: GateDef[] }
+  | { at: number; type: 'gems'; gems: { x: number; dz: number }[] };
+
+export interface LevelPlan {
+  level: number;
+  /** Distance to the boss arena. */
+  length: number;
+  speed: number;
+  bossHp: number;
+  /** Gate points (one full volley = gun power) needed to raise a gate by one. */
+  gateCost: number;
+  events: LevelEvent[];
+}
+
+/** Small seeded RNG so a level is laid out the same way every time you replay it. */
+function mulberry32(seed: number): () => number {
+  let a = seed >>> 0;
+  return () => {
+    a = (a + 0x6d2b79f5) >>> 0;
+    let t = a;
+    t = Math.imul(t ^ (t >>> 15), t | 1);
+    t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+
+export function buildLevel(level: number): LevelPlan {
+  const rnd = mulberry32(level * 9973 + 17);
+  const range = (a: number, b: number) => a + (b - a) * rnd();
+  const int = (a: number, b: number) => Math.floor(range(a, b + 1));
+
+  const L = level - 1;
+  const hpScale = 1 + 0.3 * L;
+  const gateScale = 1 + 0.35 * L;
+  const length = Math.min(900, 420 + 45 * L);
+  const events: LevelEvent[] = [];
+
+  const wave = (at: number, size: number, bruteChance: number) => {
+    const enemies: { kind: EnemyKind; x: number; dz: number; hp: number }[] = [];
+    const cols = Math.min(4, size);
+    for (let i = 0; i < size; i++) {
+      const brute = rnd() < bruteChance;
+      const col = i % cols;
+      const row = Math.floor(i / cols);
+      const spread = (TRACK_HALF - 0.8) * 2;
+      const x = cols === 1 ? range(-1.5, 1.5) : -spread / 2 + (spread * col) / (cols - 1) + range(-0.4, 0.4);
+      enemies.push({
+        kind: brute ? 'brute' : 'grunt',
+        x,
+        dz: -row * 2.6 - range(0, 0.8),
+        hp: Math.round((brute ? range(14, 22) : range(3, 7)) * hpScale),
+      });
+    }
+    events.push({ at, type: 'wave', enemies });
+  };
+
+  const gates = (at: number, first = false) => {
+    const roll = rnd();
+    const plus = () => Math.max(1, Math.round(range(3, 9) * gateScale));
+    const minus = () => -Math.max(1, Math.round(range(2, 8) * gateScale));
+    let defs: GateDef[];
+    if (!first && level > 2 && roll < 0.2) {
+      // A full-width negative gate: shoot it up before you reach it.
+      defs = [{ x0: -TRACK_HALF, x1: TRACK_HALF, value: -Math.round(range(3, 6) * gateScale) }];
+    } else {
+      const both = roll > 0.85;
+      const a = plus();
+      const b = both ? Math.max(1, Math.round(a * range(0.3, 0.7))) : minus();
+      const goodLeft = rnd() < 0.5;
+      defs = [
+        { x0: -TRACK_HALF, x1: -0.08, value: goodLeft ? a : b },
+        { x0: 0.08, x1: TRACK_HALF, value: goodLeft ? b : a },
+      ];
+    }
+    events.push({ at, type: 'gates', gates: defs });
+  };
+
+  const gems = (at: number) => {
+    const n = int(5, 8);
+    const x0 = range(-TRACK_HALF + 0.8, TRACK_HALF - 0.8);
+    const drift = range(-0.3, 0.3);
+    const list = [];
+    for (let i = 0; i < n; i++) {
+      const x = Math.max(-TRACK_HALF + 0.5, Math.min(TRACK_HALF - 0.5, x0 + drift * i));
+      list.push({ x, dz: -i * 1.6 });
+    }
+    events.push({ at, type: 'gems', gems: list });
+  };
+
+  // Something to shoot straight away, then a gate to show how they work.
+  wave(22, 3, 0);
+  gems(36);
+  gates(55, true);
+
+  let pos = 85;
+  let last: 'wave' | 'gates' | 'gems' = 'gates';
+  while (pos < length - 45) {
+    const r = rnd();
+    const pick: 'wave' | 'gates' | 'gems' = last !== 'gates' && r < 0.38 ? 'gates' : r < 0.85 ? 'wave' : 'gems';
+    if (pick === 'wave') {
+      const size = Math.min(10, 3 + Math.floor(level / 2) + int(0, 2));
+      wave(pos, size, Math.min(0.5, 0.1 + 0.06 * L));
+      if (rnd() < 0.4) gems(pos + 14);
+      pos += range(30, 38);
+    } else if (pick === 'gates') {
+      gates(pos);
+      pos += 32; // leave room so enemies aren't hidden right behind the gates
+    } else {
+      gems(pos);
+      pos += 16;
+    }
+    last = pick;
+  }
+
+  return {
+    level,
+    length,
+    speed: Math.min(15, 11 + 0.3 * L),
+    bossHp: Math.round(600 * (1 + 0.6 * L)),
+    gateCost: 1 + 0.08 * L,
+    events,
+  };
+}

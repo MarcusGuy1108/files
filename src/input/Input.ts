@@ -1,80 +1,89 @@
-import type { MoveAction } from '../game/Player';
+export type Action = 'pause' | 'confirm';
 
-export type Action = MoveAction | 'pause' | 'confirm';
-
-const SWIPE_MIN_PX = 30;
+const TAP_MAX_PX = 12;
 const TAP_MAX_MS = 300;
 
-const KEYMAP: Record<string, Action> = {
-  ArrowLeft: 'left',
-  KeyA: 'left',
-  ArrowRight: 'right',
-  KeyD: 'right',
-  ArrowUp: 'jump',
-  KeyW: 'jump',
-  Space: 'jump',
-  ArrowDown: 'slide',
-  KeyS: 'slide',
-  Escape: 'pause',
-  KeyP: 'pause',
-  Enter: 'confirm',
-};
+const LEFT = new Set(['ArrowLeft', 'KeyA']);
+const RIGHT = new Set(['ArrowRight', 'KeyD']);
 
 /**
- * Maps keyboard, touch and mouse into one stream of actions.
- * Swipes (touch or mouse drag) fire as soon as they pass the threshold, so they feel instant.
+ * Steering from a drag anywhere on screen (touch or mouse) or held arrow / A-D keys,
+ * plus discrete actions (pause, confirm).
  */
 export class Input {
   private pointerId: number | null = null;
-  private startX = 0;
-  private startY = 0;
+  private lastX = 0;
+  private moved = 0;
   private startTime = 0;
-  private swiped = false;
+  private dragPx = 0;
+  private held = new Set<string>();
 
   constructor(private onAction: (a: Action) => void) {
     window.addEventListener('keydown', this.onKeyDown);
+    window.addEventListener('keyup', (e) => this.held.delete(e.code));
+    window.addEventListener('blur', () => this.held.clear());
     window.addEventListener('pointerdown', this.onPointerDown);
     window.addEventListener('pointermove', this.onPointerMove);
     window.addEventListener('pointerup', this.onPointerUp);
     window.addEventListener('pointercancel', this.onPointerCancel);
-    // Stop long-press menus and double-tap zoom on mobile.
     window.addEventListener('contextmenu', (e) => e.preventDefault());
   }
 
+  /** Horizontal drag in CSS pixels since the last call. */
+  consumeDrag(): number {
+    const d = this.dragPx;
+    this.dragPx = 0;
+    return d;
+  }
+
+  /** -1 (left) .. 1 (right) from held keys. */
+  get keyAxis(): number {
+    let a = 0;
+    for (const c of this.held) {
+      if (LEFT.has(c)) a -= 1;
+      if (RIGHT.has(c)) a += 1;
+    }
+    return Math.max(-1, Math.min(1, a));
+  }
+
   private onKeyDown = (e: KeyboardEvent) => {
-    const action = KEYMAP[e.code];
-    if (!action) return;
-    // Let buttons handle their own Enter/Space activation.
-    if ((action === 'confirm' || e.code === 'Space') && (e.target as HTMLElement)?.closest?.('button')) return;
-    e.preventDefault();
-    if (e.repeat) return;
-    this.onAction(action);
+    if (LEFT.has(e.code) || RIGHT.has(e.code)) {
+      e.preventDefault();
+      this.held.add(e.code);
+      return;
+    }
+    const onButton = !!(e.target as HTMLElement)?.closest?.('button');
+    if (e.code === 'Escape' || e.code === 'KeyP') {
+      e.preventDefault();
+      if (!e.repeat) this.onAction('pause');
+    } else if ((e.code === 'Enter' || e.code === 'Space') && !onButton) {
+      // Buttons handle their own Enter/Space activation.
+      e.preventDefault();
+      if (!e.repeat) this.onAction('confirm');
+    }
   };
 
   private onPointerDown = (e: PointerEvent) => {
     if (this.pointerId !== null) return;
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     this.pointerId = e.pointerId;
-    this.startX = e.clientX;
-    this.startY = e.clientY;
+    this.lastX = e.clientX;
+    this.moved = 0;
     this.startTime = performance.now();
-    this.swiped = false;
   };
 
   private onPointerMove = (e: PointerEvent) => {
-    if (e.pointerId !== this.pointerId || this.swiped) return;
-    const dx = e.clientX - this.startX;
-    const dy = e.clientY - this.startY;
-    if (Math.max(Math.abs(dx), Math.abs(dy)) < SWIPE_MIN_PX) return;
-    this.swiped = true;
-    if (Math.abs(dx) > Math.abs(dy)) this.onAction(dx > 0 ? 'right' : 'left');
-    else this.onAction(dy > 0 ? 'slide' : 'jump');
+    if (e.pointerId !== this.pointerId) return;
+    const dx = e.clientX - this.lastX;
+    this.lastX = e.clientX;
+    this.dragPx += dx;
+    this.moved += Math.abs(dx);
   };
 
   private onPointerUp = (e: PointerEvent) => {
     if (e.pointerId !== this.pointerId) return;
     this.pointerId = null;
-    if (!this.swiped && performance.now() - this.startTime < TAP_MAX_MS) this.onAction('confirm');
+    if (this.moved < TAP_MAX_PX && performance.now() - this.startTime < TAP_MAX_MS) this.onAction('confirm');
   };
 
   private onPointerCancel = (e: PointerEvent) => {

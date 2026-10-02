@@ -15,45 +15,63 @@
   </head>
   <body>
     <canvas id="game"></canvas>
+    <div id="pops"></div>
 
     <div id="ui">
       <div id="hud" class="hidden">
-        <div class="hud-stat">
-          <span class="label">SCORE</span>
-          <span id="hud-score" class="value">0</span>
+        <div class="hud-row">
+          <div class="hud-level">
+            <span id="hud-level" class="label">LEVEL 1</span>
+            <div class="bar"><div id="hud-progress" class="bar-fill"></div></div>
+          </div>
+          <div class="gems-chip"><span class="gem-icon"></span><span id="hud-gems">0</span></div>
+          <button id="btn-pause" class="icon-btn" aria-label="Pause">&#10074;&#10074;</button>
         </div>
-        <div class="hud-stat hud-best">
-          <span class="label">BEST</span>
-          <span id="hud-best" class="value">0</span>
+        <div id="boss-bar" class="boss-bar hidden">
+          <span class="label">BOSS</span>
+          <div class="bar"><div id="boss-fill" class="bar-fill"></div></div>
         </div>
-        <button id="btn-pause" class="icon-btn" aria-label="Pause">&#10074;&#10074;</button>
       </div>
 
       <section id="screen-menu" class="screen">
+        <div class="corner-chip gems-chip"><span class="gem-icon"></span><span id="menu-gems">0</span></div>
         <h1 class="title">NEON<span>RUNNER</span></h1>
-        <p class="best-line">BEST <span id="menu-best">0</span></p>
-        <button id="btn-play" class="btn">PLAY</button>
-        <div class="controls">
-          <p class="ctl-touch">Swipe &larr; &rarr; to switch lanes<br />Swipe &uarr; to jump &middot; &darr; to slide</p>
-          <p class="ctl-keys">&larr; &rarr; / A D: switch lanes<br />&uarr; / W / Space: jump &middot; &darr; / S: slide &middot; Esc: pause</p>
+        <p class="level-line">LEVEL <span id="menu-level">1</span></p>
+        <div class="stack">
+          <button id="btn-play" class="btn">PLAY</button>
+          <button id="btn-shop" class="btn btn-ghost">UPGRADES</button>
         </div>
+        <div class="controls">
+          <p class="ctl-touch">Drag left and right to steer. Your squad fires on its own.</p>
+          <p class="ctl-keys">&larr; &rarr; or A D to steer &middot; your squad fires on its own &middot; Esc to pause</p>
+          <p>Walk through <b class="good">+</b> gates to grow your squad. Shoot <b class="bad">&minus;</b> gates to raise them.<br />An enemy that reaches you takes as many members as its number.</p>
+        </div>
+      </section>
+
+      <section id="screen-shop" class="screen hidden">
+        <h2 class="heading">UPGRADES</h2>
+        <div class="gems-chip big"><span class="gem-icon"></span><span id="shop-gems">0</span></div>
+        <div id="shop-list" class="shop-list"></div>
+        <button id="btn-shop-back" class="btn btn-ghost">BACK</button>
       </section>
 
       <section id="screen-pause" class="screen hidden">
         <h2 class="heading">PAUSED</h2>
-        <button id="btn-resume" class="btn">RESUME</button>
-        <button id="btn-quit" class="btn btn-ghost">MAIN MENU</button>
+        <div class="stack">
+          <button id="btn-resume" class="btn">RESUME</button>
+          <button id="btn-quit" class="btn btn-ghost">MAIN MENU</button>
+        </div>
       </section>
 
-      <section id="screen-gameover" class="screen hidden">
-        <h2 class="heading">GAME OVER</h2>
-        <p id="new-best" class="new-best hidden">NEW BEST!</p>
-        <div class="results">
-          <div><span class="label">SCORE</span><span id="go-score" class="value">0</span></div>
-          <div><span class="label">BEST</span><span id="go-best" class="value">0</span></div>
+      <section id="screen-result" class="screen hidden">
+        <h2 id="result-title" class="heading">LEVEL 1 CLEARED</h2>
+        <p id="result-sub" class="sub"></p>
+        <div class="gems-chip big">+<span id="result-gems">0</span><span class="gem-icon"></span></div>
+        <div class="stack">
+          <button id="btn-next" class="btn">NEXT LEVEL</button>
+          <button id="btn-result-shop" class="btn btn-ghost">UPGRADES</button>
+          <button id="btn-result-menu" class="btn btn-ghost">MAIN MENU</button>
         </div>
-        <button id="btn-retry" class="btn">PLAY AGAIN</button>
-        <button id="btn-menu" class="btn btn-ghost">MAIN MENU</button>
       </section>
     </div>
 
