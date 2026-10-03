@@ -25,7 +25,16 @@ export interface Channel {
   close(): void;
 }
 
-export class NetError extends Error {}
+export class NetError extends Error {
+  /** A link that may get the player going, shown with the message. */
+  link?: string;
+}
+
+/** The standalone copy of the game (GitHub Pages), where co-op connects peer-to-peer. */
+export const STANDALONE_URL = 'https://marcusguy1108.github.io/files/';
+
+/** claude.ai refused the room: usually its sign-in can't reach this embedded page. */
+class RoomUnavailable extends NetError {}
 
 const CODE_CHARS = 'ABCDEFGHJKLMNPQRSTUVWXYZ23456789'; // no 0/O, 1/I
 const CODE_LEN = 5;
@@ -55,7 +64,25 @@ export function detectVia(): Via {
 
 export async function openChannel(role: Role, code: string): Promise<Channel> {
   const via = detectVia();
-  if (via === 'room') return roomChannel(role, code);
+  if (via === 'room') {
+    try {
+      return await roomChannel(role, code);
+    } catch (e) {
+      if (!(e instanceof RoomUnavailable)) throw e;
+      // Try a direct connection instead; it works when the page runs outside the viewer.
+      try {
+        return await peerChannel(role, code);
+      } catch {
+        const err = new NetError(
+          "Co-op can't connect from this page. claude.ai only allows it when it can confirm you're signed in, " +
+            'and Safari, iPhone browsers and in-app browsers often block that check. ' +
+            'Open the standalone game instead (both players need to use it):',
+        );
+        err.link = STANDALONE_URL;
+        throw err;
+      }
+    }
+  }
   if (via === 'local') return localChannel(role, code);
   return peerChannel(role, code);
 }
@@ -84,14 +111,15 @@ interface RoomCap {
 async function roomChannel(role: Role, code: string): Promise<Channel> {
   const claude = (window as unknown as { claude: { use(name: 'room'): Promise<RoomCap | null> } }).claude;
   const room = await claude.use('room');
-  if (!room) throw new NetError('Co-op needs you to be signed in to claude.ai with access to this page.');
+  if (!room) throw new RoomUnavailable('room unavailable');
 
   let r: NamedRoom;
   try {
     r = await room.join(`nr-${code.toLowerCase()}`);
   } catch (e) {
     const c = (e as { code?: string }).code;
-    throw new NetError(c === 'not_permitted' ? 'Co-op rooms are not available for this page.' : 'Could not reach the co-op server. Try again.');
+    if (c === 'not_permitted') throw new RoomUnavailable('not permitted');
+    throw new NetError('Could not reach the co-op server. Try again.');
   }
   await r.presence({ role });
 

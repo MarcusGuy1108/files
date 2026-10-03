@@ -21,7 +21,7 @@ const LEVEL_EVENT_INFO: Record<LevelEventKind, { title: string; sub: string; css
   ambush: { title: 'AMBUSH!', sub: 'Enemies dropping in', css: '#ff7a1a', color: 0xff6a10, seconds: 3.5 },
   gemrush: { title: 'GEM RUSH', sub: 'Grab them all', css: '#3dffa8', color: 0x22ff88, seconds: 4.5 },
 };
-import { detectVia, makeCode, normalizeCode, openChannel, NetError, type Channel } from '../net/Channel';
+import { STANDALONE_URL, detectVia, makeCode, normalizeCode, openChannel, NetError, type Channel } from '../net/Channel';
 import { encodeEvent, encodeSnap, type GuestMsg, type HostMsg } from '../net/protocol';
 
 type State = 'menu' | 'shop' | 'coop' | 'playing' | 'paused' | 'result';
@@ -455,7 +455,7 @@ export class Game {
     this.setState('coop');
     const note =
       detectVia() === 'room'
-        ? 'Your friend needs a claude.ai account and access to this page. Share it from the Share menu first.'
+        ? `Here, co-op needs both players signed in to claude.ai with access to this page. If it won't connect (common on iPhone), use the standalone game: ${STANDALONE_URL.replace('https://', '')}`
         : 'Your friend opens this same page, taps CO-OP and enters your code.';
     this.ui.resetCoopBack();
     this.ui.showCoop(note);
@@ -497,7 +497,7 @@ export class Game {
 
   private coopFailed(e: unknown): void {
     this.ui.setCoopBusy(false);
-    this.ui.coopError(e instanceof NetError ? e.message : 'Something went wrong connecting. Try again.');
+    this.ui.coopError(e instanceof NetError ? e.message : 'Something went wrong connecting. Try again.', e instanceof NetError ? e.link : undefined);
     if (!(e instanceof NetError)) console.error(e);
   }
 

@@ -734,6 +734,12 @@ input {
   opacity: 0.75;
 }
 
+.error a {
+  color: var(--cyan);
+  font-weight: 700;
+  word-break: break-all;
+}
+
 .error {
   max-width: 400px;
   margin: 0;

@@ -279,11 +279,20 @@ export class UI {
     join.textContent = busy && label === 'join' ? '…' : 'JOIN';
   }
 
-  coopError(message: string): void {
+  coopError(message: string, link?: string): void {
     const el = $('coop-error');
-    el.textContent = message;
+    el.replaceChildren(document.createTextNode(message));
+    if (link) {
+      const a = document.createElement('a');
+      a.href = link;
+      a.target = '_blank';
+      a.rel = 'noopener';
+      a.textContent = link.replace(/^https:\/\//, '');
+      el.append(' ', a);
+    }
     el.classList.remove('hidden');
   }
+
 
   /** The session panel: the code, who's here, and (for the host) the start button. */
   coopSession(code: string, role: 'host' | 'guest', partner: boolean, level: number): void {
