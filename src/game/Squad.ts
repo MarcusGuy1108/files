@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { COLORS } from '../render/Scene';
 import { TextLabel, labelSprite } from '../render/Label';
 import { TRACK_HALF } from './Track';
+import { fmtCount } from './Enemies';
 
 /** Members drawn individually; bigger squads still count (and fire) in full. */
 export const MAX_VISIBLE = 80;
@@ -150,7 +151,7 @@ export class Squad {
     this.bodies.instanceMatrix.needsUpdate = true;
     this.guns.instanceMatrix.needsUpdate = true;
 
-    this.label.set(String(this.count));
+    this.label.set(fmtCount(this.count));
     this.labelSprite.visible = this.count > 0;
     this.labelSprite.position.set(this.x, 1.5, -this.radius * 0.6);
     if (this.bubble.visible) {

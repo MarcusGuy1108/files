@@ -1,8 +1,8 @@
 import type { EnemyKind } from './Enemies';
 import type { PowerKind } from './Powerups';
 
-export type LevelEventKind = 'meteors' | 'ambush' | 'gemrush';
-export const LEVEL_EVENT_KINDS: LevelEventKind[] = ['meteors', 'ambush', 'gemrush'];
+export type LevelEventKind = 'meteors' | 'ambush' | 'gemrush' | 'stampede' | 'overdrive' | 'doubleup' | 'blackout';
+export const LEVEL_EVENT_KINDS: LevelEventKind[] = ['meteors', 'ambush', 'gemrush', 'stampede', 'overdrive', 'doubleup', 'blackout'];
 
 /**
  * Everything noteworthy the simulation does. The game turns these into effects, sound,

@@ -103,9 +103,10 @@ export class Track {
   /** Neon arches over the road that you run under. */
   private buildArches(parent: THREE.Object3D): void {
     const span = (TRACK_HALF + 1.3) * 2;
-    const postGeo = new THREE.BoxGeometry(0.2, 5.6, 0.2);
-    postGeo.translate(0, 2.8, 0);
-    const beamGeo = new THREE.BoxGeometry(span + 0.2, 0.2, 0.2);
+    // Taller than the camera (y 6.8) so the beam sweeps overhead instead of across the view.
+    const postGeo = new THREE.BoxGeometry(0.2, 8, 0.2);
+    postGeo.translate(0, 4, 0);
+    const beamGeo = new THREE.BoxGeometry(span + 0.2, 0.16, 0.16);
     for (let i = 0; i < ARCH_COUNT; i++) {
       const mat = new THREE.MeshBasicMaterial({ color: ARCH_COLORS[i % ARCH_COLORS.length] });
       const g = new THREE.Group();
@@ -115,12 +116,18 @@ export class Track {
         g.add(post);
       }
       const beam = new THREE.Mesh(beamGeo, mat);
-      beam.position.y = 5.6;
+      beam.position.y = 8;
       g.add(beam);
       g.position.z = -30 - i * ARCH_SPACING;
       parent.add(g);
       this.arches.push({ group: g, mat, hue: i });
     }
+  }
+
+  /** Level colour scheme: grid line and road edge colours. */
+  setColors(line: number, edge: number): void {
+    this.lineColor.setHex(line);
+    (this.gridMat.uniforms.uEdge.value as THREE.Color).setHex(edge);
   }
 
   /** Beat pulse (0..1) and the mood colour for the floor lines. */

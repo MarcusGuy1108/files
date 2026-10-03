@@ -38,7 +38,7 @@ export interface Snap {
   p: number[][];
   /** Enemies, 7 numbers each: id, kind, x, z, hp, shield hp, walking. */
   e: number[];
-  /** Gates, 5 numbers each: pair id, x0, x1, z, value. */
+  /** Gates, 6 numbers each: pair id, x0, x1, z, value, multiplier (0 = none). */
   g: number[];
   /** Gem pickups: x, z. */
   m: number[];
@@ -81,7 +81,7 @@ export function encodeSnap(sim: Sim, w: World, recent: (number | string)[][]): S
     snap.e.push(e.id, ENEMY_KINDS.indexOf(e.kind), r2(p.x), r2(p.z), Math.ceil(e.hp), Math.ceil(e.shieldHp), e.walking ? 1 : 0);
   }
   for (const pair of w.gates.pairs) {
-    for (const g of pair.gates) snap.g.push(pair.id, r2(g.x0), r2(g.x1), r2(pair.z), g.value);
+    for (const g of pair.gates) snap.g.push(pair.id, r2(g.x0), r2(g.x1), r2(pair.z), g.value, g.mul);
   }
   for (let i = 0; i < w.gems.n; i++) snap.m.push(r2(w.gems.x[i]), r2(w.gems.z[i]));
   for (const pu of w.powerups.active) {

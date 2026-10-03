@@ -1,5 +1,5 @@
-import { ENEMY_SPECS, SHIELD, type Enemy } from './Enemies';
-import { POWER_SPECS } from './Powerups';
+import { BARREL_BLAST, ENEMY_SPECS, SHIELD, hitHalfW, type Enemy } from './Enemies';
+import { POWER_KINDS, POWER_SPECS } from './Powerups';
 import { noPowers, type Player, type World } from './World';
 import type { LevelPlan } from './Level';
 import { METEOR_RADIUS } from './Hazards';
@@ -38,6 +38,8 @@ export class Sim {
   private meteorTimer = 0;
   private meteors: { x: number; z: number; t: number }[] = [];
   private bossRoaring = false;
+  /** Overdrive event: faster scrolling and firing until this distance. */
+  private overdriveUntil = 0;
   /** Called once per volley, for the shot sound. */
   onVolley: ((player: number) => void) | null = null;
 
@@ -50,8 +52,12 @@ export class Sim {
     return this.w.players.filter((p) => p.active);
   }
 
+  get overdrive(): boolean {
+    return this.phase === 'run' && this.distance < this.overdriveUntil;
+  }
+
   get speed(): number {
-    return this.phase === 'run' ? this.plan.speed : 0;
+    return this.phase === 'run' ? this.plan.speed * (this.overdrive ? 1.45 : 1) : 0;
   }
 
   start(plan: LevelPlan): void {
@@ -62,6 +68,7 @@ export class Sim {
     this.meteors = [];
     this.meteorUntil = 0;
     this.bossRoaring = false;
+    this.overdriveUntil = 0;
     this.boss = null;
     this.result = null;
     this.setPhase('run');
@@ -81,7 +88,7 @@ export class Sim {
 
     let dz = 0;
     if (this.phase === 'run') {
-      dz = this.plan.speed * dt;
+      dz = this.speed * dt;
       if (this.distance + dz >= this.plan.length) {
         // Arrived at the arena: stop scrolling and let the boss come to us.
         dz = this.plan.length - this.distance;
@@ -173,6 +180,23 @@ export class Sim {
         this.meteorTimer = 0.6;
       } else if (ev.kind === 'ambush') {
         this.ambush();
+      } else if (ev.kind === 'stampede') {
+        this.stampede();
+      } else if (ev.kind === 'overdrive') {
+        this.overdriveUntil = this.distance + ev.span;
+      } else if (ev.kind === 'doubleup') {
+        // One side doubles the squad; the other takes a bite out of it.
+        const left = Math.random() < 0.5;
+        const bad = -(3 + this.plan.level * 2);
+        this.w.gates.spawnPair(
+          [
+            { x0: -TRACK_HALF, x1: -0.08, value: left ? 0 : bad, mul: left ? 2 : 0 },
+            { x0: 0.08, x1: TRACK_HALF, value: left ? bad : 0, mul: left ? 0 : 2 },
+          ],
+          -45,
+        );
+      } else if (ev.kind === 'blackout') {
+        // Purely visual: the screens dim (see Game).
       } else {
         // Gem rush: a snaking trail of gems just ahead.
         for (let i = 0; i < 14; i++) this.w.gems.spawn(Math.sin(i * 0.6) * (TRACK_HALF - 1), -28 - i * 2.2);
@@ -227,15 +251,27 @@ export class Sim {
     }
   }
 
-  /** Each boss roar calls in two minions. */
+  /** A wide, dense charge of weak grunts. */
+  private stampede(): void {
+    const n = Math.min(24, 12 + this.plan.level);
+    for (let i = 0; i < n; i++) {
+      const x = -TRACK_HALF + 0.5 + Math.random() * (TRACK_HALF * 2 - 1);
+      const z = -38 - Math.floor(i / 4) * 2.4 - Math.random();
+      this.w.enemies.spawn('grunt', x, z, Math.round((1.5 + Math.random() * 2) * this.plan.hpScale));
+    }
+  }
+
+  /** Each boss roar calls in minions: two at first, more on later levels. */
   private bossSummons(): void {
     const b = this.boss;
     if (!b) return;
     const roaring = this.w.enemies.roaring(b);
     if (roaring && !this.bossRoaring) {
       const p = b.group.position;
-      for (const s of [-1, 1]) {
-        const x = Math.max(-TRACK_HALF + 0.6, Math.min(TRACK_HALF - 0.6, p.x + s * 2.6));
+      const n = Math.min(6, 2 + Math.floor(this.plan.level / 5));
+      for (let k = 0; k < n; k++) {
+        const off = (k - (n - 1) / 2) * (5.2 / Math.max(1, n - 1));
+        const x = Math.max(-TRACK_HALF + 0.6, Math.min(TRACK_HALF - 0.6, p.x + off));
         this.w.enemies.spawn('grunt', x, p.z + 2.5, Math.round(5 * this.plan.hpScale));
       }
       this.emit({ k: 'summon', x: p.x, z: p.z });
@@ -245,7 +281,7 @@ export class Sim {
 
   private fire(p: Player, dt: number): void {
     if (p.squad.count <= 0) return;
-    const rate = p.stats.rate * (p.pw.rapid > 0 ? 2 : 1);
+    const rate = p.stats.rate * (p.pw.rapid > 0 ? 2 : 1) * (this.overdrive ? 1.5 : 1);
     const interval = 1 / rate;
     p.fireTimer += dt;
     while (p.fireTimer >= interval) {
@@ -298,7 +334,7 @@ export class Sim {
       for (const e of enemies.active) {
         const p = e.group.position;
         const r = ENEMY_SPECS[e.kind].radius;
-        if (Math.abs(x - p.x) < r && Math.abs(z - p.z) < r + 0.2) {
+        if (Math.abs(x - p.x) < hitHalfW(e.kind) && Math.abs(z - p.z) < r + 0.2) {
           const dmg = b.dmg[i];
           b.remove(i);
           if (enemies.damage(e, dmg)) this.kill(e);
@@ -325,6 +361,25 @@ export class Sim {
     if (Math.random() < spec.drop.chance) {
       for (let k = 0; k < spec.drop.count; k++) w.gems.spawn(p.x + (k - (spec.drop.count - 1) / 2) * 0.7, p.z);
     }
+    // Crates sometimes hold a power-up.
+    if (e.kind === 'crate' && Math.random() < 0.3) {
+      w.powerups.spawn(POWER_KINDS[Math.floor(Math.random() * POWER_KINDS.length)], p.x, p.z - 1.5);
+    }
+    // Barrels explode, hurting everything around them (and setting off other barrels).
+    if (e.kind === 'barrel') {
+      const x = p.x;
+      const z = p.z;
+      this.emit({ k: 'boom', x, z, p: -1, loss: 0 });
+      const blast = Math.round(30 * this.plan.hpScale);
+      const near = w.enemies.active.filter(
+        (o) => o !== this.boss && Math.hypot(o.group.position.x - x, o.group.position.z - z) < BARREL_BLAST + ENEMY_SPECS[o.kind].radius,
+      );
+      for (const o of near) {
+        if (!w.enemies.active.includes(o)) continue; // already taken out by a chain reaction
+        if (o.shieldHp > 0) w.enemies.setShield(o, 0);
+        if (w.enemies.damage(o, blast)) this.kill(o);
+      }
+    }
   }
 
   private resolveContacts(): void {
@@ -338,8 +393,9 @@ export class Sim {
       for (const p of alive) {
         const g = w.gates.gateAt(pair, p.squad.x);
         if (!g) continue;
-        p.squad.add(g.value);
-        this.emit({ k: 'gate', p: p.idx, v: g.value });
+        const v = g.mul ? p.squad.count * (g.mul - 1) : g.value;
+        p.squad.add(v);
+        this.emit({ k: 'gate', p: p.idx, v });
       }
       w.gates.removePair(pair);
     }
@@ -349,8 +405,9 @@ export class Sim {
       const e = w.enemies.active[i];
       const pos = e.group.position;
       const er = ENEMY_SPECS[e.kind].radius;
+      const ew = hitHalfW(e.kind);
       const hitP = alive.find(
-        (p) => pos.z >= -(er + p.squad.radius * 0.6) && Math.abs(pos.x - p.squad.x) <= p.squad.radius + er,
+        (p) => pos.z >= -(er + p.squad.radius * 0.6) && Math.abs(pos.x - p.squad.x) <= p.squad.radius + ew,
       );
       if (!hitP) continue;
       const sq = hitP.squad;

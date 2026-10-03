@@ -1,6 +1,6 @@
-# Neon Runner
+# Neon Legion
 
-A synthwave 3D squad shooter-runner for one or two players. It runs in any modern browser: phones, tablets and desktops.
+A synthwave 3D squad shooter-runner for one or two players. It runs in any modern browser, on phones, tablets and desktops.
 Built with [Three.js](https://threejs.org/), TypeScript and Vite. All geometry is generated in code, so there are no assets to load.
 
 ## Play
@@ -23,6 +23,25 @@ Lead a neon squad down the track. Your squad fires on its own; you steer.
 - **Gems:** enemies sometimes drop gems that you must walk over to collect. There are also gems on the track, and a bonus for beating the boss and clearing the level. You keep the gems you picked up even if your squad is wiped out.
 - **Upgrades:** spend gems on starting **squad size**, **gun power** and **fire rate**. Prices rise with each level you buy.
 - **Sound:** synthwave music and sound effects, all generated in the browser. You can switch music and sound effects off from the menu or the pause screen.
+
+### What's on the track
+
+- **Obstacles** block the way and have health numbers. Shoot them down or steer around them. If you run into one, you lose that many members.
+  - **Explosive barrels** blow up when destroyed and damage everything nearby, setting off chain reactions.
+  - **Tyre stacks** take a lot of shooting to clear.
+  - **Supply crates** drop gems and sometimes a power-up.
+  - **Concrete barriers** cover two-thirds of the road.
+- **Events** are announced mid-level with a banner. Each one unlocks at a certain level, and the number of events per level rises from 1 to 3:
+  - **Gem Rush:** a trail of gems.
+  - **Ambush:** enemies drop in right in front of you.
+  - **Stampede:** a wide charge of weak grunts.
+  - **Meteor Shower:** dodge the red target rings.
+  - **Double Up:** a ×2 gate opposite a negative one.
+  - **Overdrive:** faster running and firing.
+  - **Blackout:** the lights go out and you watch for glowing eyes.
+- **Endless levels:** there's no last level. Enemy health, gate values, bosses and boss minions all grow steadily, and each level cycles through five colour themes (Sunset Strip, Ice Circuit, Toxic Zone, Inferno Run, The Void).
+
+See [docs/gem-store-plan.md](docs/gem-store-plan.md) for the plan to sell gems on Google Play and the App Store.
 
 ### Co-op
 

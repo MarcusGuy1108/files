@@ -152,7 +152,30 @@ export function buildLevel(level: number, coop = false): LevelPlan {
 
   let pos = 85;
   let nextPower = 100;
-  let last: 'wave' | 'gates' | 'gems' = 'gates';
+  // Obstacles: a row of barrels, tyres, crates or a concrete barrier you shoot through or dodge.
+  const obstacles = (at: number) => {
+    const enemies: WaveEnemy[] = [];
+    const slots = [-2.7, 0, 2.7];
+    const hp = (base: number) => Math.round(base * hpScale * range(0.85, 1.15));
+    if (level >= 2 && rnd() < 0.35) {
+      // A barrier across two thirds of the road, with something in the last third.
+      const leftWall = rnd() < 0.5;
+      enemies.push({ kind: 'barrier', x: leftWall ? -1.35 : 1.35, dz: 0, hp: hp(22), shield: 0 });
+      const kind = rnd() < 0.5 ? 'barrel' : 'tyres';
+      enemies.push({ kind, x: leftWall ? 2.7 : -2.7, dz: 0, hp: hp(kind === 'barrel' ? 6 : 14), shield: 0 });
+    } else {
+      const gap = rnd() < 0.4 ? int(0, 2) : -1; // sometimes leave a lane open
+      slots.forEach((x, i) => {
+        if (i === gap) return;
+        const r = rnd();
+        const kind = r < 0.4 ? 'barrel' : r < 0.75 ? 'tyres' : 'crate';
+        enemies.push({ kind, x: x + range(-0.3, 0.3), dz: range(-0.6, 0.6), hp: hp(kind === 'barrel' ? 6 : kind === 'tyres' ? 14 : 9), shield: 0 });
+      });
+    }
+    events.push({ at, type: 'wave', enemies });
+  };
+
+  let last: 'wave' | 'gates' | 'gems' | 'obstacles' = 'gates';
   while (pos < length - 45) {
     if (pos >= nextPower) {
       power(pos);
@@ -160,10 +183,20 @@ export function buildLevel(level: number, coop = false): LevelPlan {
       nextPower = pos + range(110, 160);
     }
     const r = rnd();
-    const pick: 'wave' | 'gates' | 'gems' = last !== 'gates' && r < 0.38 ? 'gates' : r < 0.88 ? 'wave' : 'gems';
-    if (pick === 'wave') {
+    let pick: 'wave' | 'gates' | 'gems' | 'obstacles' =
+      last !== 'gates' && r < 0.36 ? 'gates' : r < 0.8 ? 'wave' : r < 0.9 ? 'obstacles' : 'gems';
+    if (pick === 'obstacles' && last === 'obstacles') pick = 'wave';
+    if (pick === 'obstacles') {
+      obstacles(pos);
+      pos += 24;
+    } else if (pick === 'wave') {
       if (level >= 3 && rnd() < 0.3) rush(pos);
       else wave(pos, Math.min(10, 3 + Math.floor(level / 2) + int(0, 2)));
+      // Explosive barrels in front of a wave: shoot them as the enemies pass.
+      if (level >= 2 && rnd() < 0.25) {
+        const x = range(-2.5, 2.5);
+        events.push({ at: pos - 2, type: 'wave', enemies: [{ kind: 'barrel', x, dz: 0, hp: Math.round(6 * hpScale), shield: 0 }] });
+      }
       if (rnd() < 0.25) gems(pos + 14, 3);
       pos += range(30, 38);
     } else if (pick === 'gates') {
@@ -176,11 +209,29 @@ export function buildLevel(level: number, coop = false): LevelPlan {
     last = pick;
   }
 
-  // Mid-level events: a gentle gem rush on level 1, then one or two surprises per level.
-  const SPANS: Record<LevelEventKind, number> = { meteors: 75, ambush: 0, gemrush: 45 };
-  const pool: LevelEventKind[] = level === 1 ? ['gemrush'] : level === 2 ? ['ambush', 'gemrush'] : ['meteors', 'ambush', 'gemrush'];
-  const slots = level === 1 ? [0.55] : level < 4 ? [0.5] : [0.3, 0.65];
+  // Mid-level events: each kind unlocks at a level; later levels get more of them.
+  const SPANS: Record<LevelEventKind, number> = {
+    meteors: 75,
+    ambush: 0,
+    gemrush: 45,
+    stampede: 0,
+    overdrive: 80,
+    doubleup: 0,
+    blackout: 70,
+  };
+  const UNLOCK: Record<LevelEventKind, number> = {
+    gemrush: 1,
+    ambush: 2,
+    stampede: 2,
+    meteors: 3,
+    doubleup: 3,
+    overdrive: 4,
+    blackout: 5,
+  };
+  const pool = (Object.keys(UNLOCK) as LevelEventKind[]).filter((k) => level >= UNLOCK[k]);
+  const slots = level === 1 ? [0.55] : level < 4 ? [0.5] : level < 8 ? [0.3, 0.65] : [0.25, 0.5, 0.75];
   for (const f of slots) {
+    if (!pool.length) break;
     const kind = pool.splice(int(0, pool.length - 1), 1)[0];
     events.push({ at: Math.round(length * f), type: 'event', kind, span: SPANS[kind] });
   }

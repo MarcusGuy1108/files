@@ -4,6 +4,7 @@ import { RenderPass } from 'three/examples/jsm/postprocessing/RenderPass.js';
 import { UnrealBloomPass } from 'three/examples/jsm/postprocessing/UnrealBloomPass.js';
 import { OutputPass } from 'three/examples/jsm/postprocessing/OutputPass.js';
 import { Backdrop, SKY } from './Backdrop';
+import type { Theme } from './themes';
 
 export const COLORS = {
   pink: 0xff2bd6,
@@ -34,7 +35,11 @@ export class GameScene {
   private muzzle: THREE.PointLight;
   private flashes: THREE.PointLight[] = [];
   private flashIdx = 0;
+  private baseGlow = new THREE.Color(SKY.glow);
   private moodTarget = new THREE.Color(SKY.glow);
+  private sunLight: THREE.DirectionalLight;
+  private blackoutTimer = 0;
+  private blackout = 0;
   private moodTimer = 0;
   readonly mood = new THREE.Color(SKY.glow);
   /** 0 normally, easing to 1 while a mood colour is active. */
@@ -68,6 +73,7 @@ export class GameScene {
       this.scene.add(l);
     }
     const sun = new THREE.DirectionalLight(0xffffff, 2.2);
+    this.sunLight = sun;
     sun.position.set(3, 10, 8);
     this.scene.add(sun);
 
@@ -120,20 +126,41 @@ export class GameScene {
 
   /** Shift the scene's mood colour for a while (null: back to the default). */
   setMood(color: number | null, seconds = 0): void {
-    this.moodTarget.set(color ?? SKY.glow);
+    if (color === null) this.moodTarget.copy(this.baseGlow);
+    else this.moodTarget.set(color);
     this.moodTimer = color === null ? 0 : seconds;
+  }
+
+  /** Switch the level's colour scheme. */
+  setTheme(t: Theme): void {
+    this.baseGlow.setHex(t.glow);
+    if (this.moodTimer <= 0) this.moodTarget.copy(this.baseGlow);
+    this.backdrop.setSun(t.sunTop, t.sunBottom);
+  }
+
+  /** Dim the world for a while: fog closes in, ambient light drops. */
+  setBlackout(seconds: number): void {
+    this.blackoutTimer = seconds;
   }
 
   /** Per frame: decay lights, ease the mood colour. */
   updateLights(dt: number): void {
     this.muzzle.intensity *= Math.exp(-dt * 18);
     for (const l of this.flashes) l.intensity *= Math.exp(-dt * 7);
-    if (this.moodTimer > 0 && (this.moodTimer -= dt) <= 0) this.moodTarget.copy(SKY.glow);
+    if (this.moodTimer > 0 && (this.moodTimer -= dt) <= 0) this.moodTarget.copy(this.baseGlow);
     this.mood.lerp(this.moodTarget, Math.min(1, dt * 2.5));
     this.moodMix += ((this.moodTimer > 0 ? 1 : 0) - this.moodMix) * Math.min(1, dt * 2.5);
     this.backdrop.setGlow(this.mood);
     // Ambient light takes a little of the mood colour too.
     this.hemi.color.setRGB(0.85, 0.8, 1).lerp(this.mood, 0.25);
+    this.blackoutTimer = Math.max(0, this.blackoutTimer - dt);
+    this.blackout += ((this.blackoutTimer > 0 ? 1 : 0) - this.blackout) * Math.min(1, dt * 2);
+    const b = this.blackout;
+    this.hemi.intensity = 1.6 - 1.35 * b;
+    this.sunLight.intensity = 2.2 - 2.0 * b;
+    const fog = this.scene.fog as THREE.Fog;
+    fog.near = 60 - 48 * b;
+    fog.far = 150 - 105 * b;
   }
 
   render(): void {

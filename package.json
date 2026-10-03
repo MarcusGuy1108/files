@@ -1,5 +1,5 @@
 {
-  "name": "neon-runner",
+  "name": "neon-legion",
   "private": true,
   "version": "0.1.0",
   "type": "module",
@@ -9,6 +9,8 @@
     "preview": "vite preview --host"
   },
   "dependencies": {
+    "@fontsource/lilita-one": "^5.3.0",
+    "@fontsource/nunito": "^5.3.0",
     "peerjs": "^1.5.5",
     "three": "^0.186.1"
   },

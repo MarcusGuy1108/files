@@ -13,6 +13,7 @@ import { GATE_BAD, GATE_GOOD } from './Gates';
 import { GEM_COLOR } from './Gems';
 import { POWER_SPECS } from './Powerups';
 import { buildLevel } from './Level';
+import { themeFor } from '../render/themes';
 import type { GameEvent, LevelEventKind } from './events';
 
 /** How each mid-level event is announced and lit. */
@@ -20,6 +21,10 @@ const LEVEL_EVENT_INFO: Record<LevelEventKind, { title: string; sub: string; css
   meteors: { title: 'METEOR SHOWER', sub: 'Keep out of the red circles', css: '#ff3a2a', color: 0xff2a10, seconds: 7 },
   ambush: { title: 'AMBUSH!', sub: 'Enemies dropping in', css: '#ff7a1a', color: 0xff6a10, seconds: 3.5 },
   gemrush: { title: 'GEM RUSH', sub: 'Grab them all', css: '#3dffa8', color: 0x22ff88, seconds: 4.5 },
+  stampede: { title: 'STAMPEDE', sub: 'Hold the line', css: '#ff5a5a', color: 0xff3040, seconds: 4 },
+  overdrive: { title: 'OVERDRIVE', sub: 'Faster run, faster fire', css: '#29f0ff', color: 0x29f0ff, seconds: 6.5 },
+  doubleup: { title: 'DOUBLE UP', sub: 'One gate doubles your squad', css: '#ffd23f', color: 0xffd23f, seconds: 4 },
+  blackout: { title: 'BLACKOUT', sub: 'Watch for glowing eyes', css: '#c58bff', color: 0x14062a, seconds: 6.5 },
 };
 import { STANDALONE_URL, detectVia, makeCode, normalizeCode, openChannel, NetError, type Channel } from '../net/Channel';
 import { encodeEvent, encodeSnap, type GuestMsg, type HostMsg } from '../net/protocol';
@@ -99,6 +104,8 @@ export class Game {
       startCoop: () => this.startRun(),
       toggleMusic: () => this.toggle('music'),
       toggleSfx: () => this.toggle('sfx'),
+      // The tap that dismisses the splash also unlocks audio, so the menu music starts here.
+      splashDone: () => this.audio.play('click'),
     });
     this.input = new Input((a) => this.onAction(a));
 
@@ -140,7 +147,15 @@ export class Game {
 
   // ---------- Menus ----------
 
+  private applyTheme(level: number): void {
+    const t = themeFor(level);
+    this.gs.setTheme(t);
+    this.w.track.setColors(t.line, t.edge);
+  }
+
   private toMenu(): void {
+    this.applyTheme(this.save.level);
+    this.gs.setBlackout(0);
     this.gs.setMood(null);
     this.ui.hideBanner();
     this.leaveCoop();
@@ -148,7 +163,7 @@ export class Game {
     this.w.clear();
     this.ui.clearPops();
     this.me.squad.reset(statsOf(this.save).start);
-    this.ui.setMenu(this.save);
+    this.ui.setMenu(this.save, themeFor(this.save.level).name);
     this.setState('menu');
     this.ui.show('menu');
     this.audio.music('menu');
@@ -213,6 +228,7 @@ export class Game {
   }
 
   private onAction(a: Action): void {
+    if (this.ui.splashActive) return;
     switch (this.state) {
       case 'menu':
         if (a === 'confirm') this.startRun();
@@ -277,8 +293,11 @@ export class Game {
   }
 
   private beginRunUi(): void {
+    this.applyTheme(this.level);
     this.gs.setMood(null);
-    this.ui.hideBanner();
+    this.gs.setBlackout(0);
+    const theme = themeFor(this.level);
+    this.ui.banner(`LEVEL ${this.level}`, theme.name, theme.css);
     this.runGems = 0;
     this.shake = 0;
     this.ui.clearPops();
@@ -295,7 +314,7 @@ export class Game {
     if (!won) this.gs.setMood(null);
     this.audio.play(won ? 'win' : 'lose');
     this.audio.music('menu');
-    this.ui.setMenu(this.save);
+    this.ui.setMenu(this.save, themeFor(this.save.level).name);
     this.ui.setBoss(null);
     this.ui.setSpectating(false);
     this.setState('result');
@@ -316,7 +335,7 @@ export class Game {
     switch (e.k) {
       case 'kill': {
         const spec = ENEMY_SPECS[e.kind];
-        const big = e.kind === 'brute' || e.kind === 'bearer';
+        const big = e.kind === 'brute' || e.kind === 'bearer' || e.kind === 'tyres' || e.kind === 'crate' || e.kind === 'barrier';
         fx.burst(e.x, spec.height * 0.5, e.z, spec.color, big ? 20 : 14, big ? 7 : 6);
         this.gs.flash(e.x, 1.2, e.z, spec.color, big ? 40 : 14);
         if (e.kind !== 'boss') this.audio.play(big ? 'bigkill' : 'kill');
@@ -377,7 +396,8 @@ export class Game {
         const ev = LEVEL_EVENT_INFO[e.kind];
         this.ui.banner(ev.title, ev.sub, ev.css);
         this.gs.setMood(ev.color, ev.seconds);
-        this.audio.play(e.kind === 'gemrush' ? 'power' : 'alarm');
+        if (e.kind === 'blackout') this.gs.setBlackout(ev.seconds);
+        this.audio.play(e.kind === 'gemrush' || e.kind === 'doubleup' || e.kind === 'overdrive' ? 'power' : 'alarm');
         break;
       }
       case 'meteor':

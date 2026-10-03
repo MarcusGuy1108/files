@@ -1,3 +1,8 @@
+// Fonts ship with the game (no Google Fonts request; works offline and in app stores).
+import '@fontsource/lilita-one/latin-400.css';
+import '@fontsource/nunito/latin-700.css';
+import '@fontsource/nunito/latin-800.css';
+import '@fontsource/nunito/latin-900.css';
 import './style.css';
 import { Game } from './game/Game';
 import { isWebGLAvailable } from './render/Scene';

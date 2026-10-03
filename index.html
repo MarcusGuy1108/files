@@ -3,112 +3,154 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no, viewport-fit=cover" />
-    <meta name="theme-color" content="#0b0216" />
+    <meta name="theme-color" content="#140728" />
     <meta name="mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-capable" content="yes" />
     <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent" />
-    <title>Neon Runner</title>
-    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 32 32'%3E%3Crect width='32' height='32' rx='6' fill='%230b0216'/%3E%3Cpath d='M6 26 16 6l10 20' fill='none' stroke='%23ff2bd6' stroke-width='3'/%3E%3Cpath d='M11 26h10' stroke='%2329f0ff' stroke-width='3'/%3E%3C/svg%3E" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-    <link href="https://fonts.googleapis.com/css2?family=Orbitron:wght@500;800&display=swap" rel="stylesheet" />
+    <meta name="description" content="Neon Legion: lead your squad through gates, smash obstacles and beat the boss. Solo or co-op." />
+    <title>Neon Legion</title>
+    <link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='14' fill='%23241047'/%3E%3Cpath d='M12 18l20 30 20-30-8 0-12 18-12-18z' fill='%23ffc23a' stroke='%23140728' stroke-width='3' stroke-linejoin='round'/%3E%3Ccircle cx='32' cy='14' r='5' fill='%2329f0ff'/%3E%3C/svg%3E" />
   </head>
   <body>
     <canvas id="game"></canvas>
     <div id="pops"></div>
 
+    <!-- Shared SVG symbols for icons used across the UI -->
+    <svg width="0" height="0" style="position: absolute" aria-hidden="true">
+      <defs>
+        <linearGradient id="g-gem" x1="0" y1="0" x2="1" y2="1">
+          <stop offset="0" stop-color="#c9ffe6" />
+          <stop offset=".5" stop-color="#3dffa8" />
+          <stop offset="1" stop-color="#0d8a52" />
+        </linearGradient>
+      </defs>
+      <symbol id="i-gem" viewBox="0 0 24 24">
+        <path d="M6 3h12l4 6-10 12L2 9z" fill="url(#g-gem)" stroke="#073d25" stroke-width="1.6" stroke-linejoin="round" />
+        <path d="M2 9h20M8 3l4 6 4-6M12 9v12" fill="none" stroke="#073d25" stroke-width="1" opacity=".5" />
+      </symbol>
+      <symbol id="i-pause" viewBox="0 0 24 24"><rect x="6" y="4" width="4" height="16" rx="1.5" /><rect x="14" y="4" width="4" height="16" rx="1.5" /></symbol>
+      <symbol id="i-music" viewBox="0 0 24 24"><path d="M9 18V5l11-2v13" fill="none" stroke="currentColor" stroke-width="2.4" stroke-linecap="round" stroke-linejoin="round" /><circle cx="6.5" cy="18" r="3" /><circle cx="17.5" cy="16" r="3" /></symbol>
+      <symbol id="i-sound" viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4z" /><path d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" /></symbol>
+      <symbol id="i-users" viewBox="0 0 24 24"><circle cx="8" cy="8" r="3.4" /><circle cx="16.5" cy="8.5" r="2.8" /><path d="M2 20c0-3.6 2.7-6 6-6s6 2.4 6 6zM13.5 20c.3-2.3-.4-4-1.4-5.2 1.2-.7 2.6-1 4.4-1 2.9 0 5.5 2 5.5 6.2z" /></symbol>
+      <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 3l8 8h-5v9H9v-9H4z" /></symbol>
+    </svg>
+
     <div id="ui">
       <div id="hud" class="hidden">
         <div class="hud-row">
           <div class="hud-level">
-            <span id="hud-level" class="label">LEVEL 1</span>
+            <span id="hud-level" class="hud-tag">LEVEL 1</span>
             <div class="bar"><div id="hud-progress" class="bar-fill"></div></div>
           </div>
-          <div class="gems-chip"><span class="gem-icon"></span><span id="hud-gems">0</span></div>
-          <button id="btn-pause" class="icon-btn" aria-label="Pause">&#10074;&#10074;</button>
+          <div class="gems-chip"><svg class="gem-icon"><use href="#i-gem" /></svg><span id="hud-gems">0</span></div>
+          <button id="btn-pause" class="round-btn" aria-label="Pause"><svg><use href="#i-pause" /></svg></button>
         </div>
         <div id="hud-powers" class="powers"></div>
-        <div id="spectate" class="banner hidden">SQUAD DOWN · WATCHING YOUR PARTNER</div>
+        <div id="spectate" class="banner hidden">Squad down · watching your partner</div>
         <div id="boss-bar" class="boss-bar hidden">
-          <span class="label">BOSS</span>
+          <span class="hud-tag boss-tag">BOSS</span>
           <div class="bar"><div id="boss-fill" class="bar-fill"></div></div>
         </div>
       </div>
 
       <div id="banner" class="event-banner hidden" aria-live="polite"><b id="banner-title"></b><span id="banner-sub"></span></div>
 
-      <section id="screen-menu" class="screen">
-        <div class="corner-chip gems-chip"><span class="gem-icon"></span><span id="menu-gems">0</span></div>
-        <h1 class="title">NEON<span>RUNNER</span></h1>
-        <p class="level-line">LEVEL <span id="menu-level">1</span></p>
-        <div class="stack">
-          <button id="btn-play" class="btn">PLAY</button>
-          <button id="btn-coop" class="btn btn-ghost">CO-OP</button>
-          <button id="btn-shop" class="btn btn-ghost">UPGRADES</button>
+      <!-- Splash: shown once on load; the tap also unlocks audio on phones -->
+      <section id="splash" class="splash">
+        <div id="splash-art" class="splash-art" aria-hidden="true"></div>
+        <div class="splash-content">
+          <h1 class="logo" aria-label="Neon Legion"><span class="logo-neon">NEON</span><span class="logo-legion">LEGION</span></h1>
+          <p class="splash-tag">Grow your squad. Smash through. Beat the boss.</p>
+          <button id="btn-splash" class="btn btn-gold btn-xl">TAP TO START</button>
         </div>
-        <div class="toggles">
-          <button class="toggle tgl-music" aria-pressed="true">MUSIC</button>
-          <button class="toggle tgl-sfx" aria-pressed="true">SOUND FX</button>
+      </section>
+
+      <section id="screen-menu" class="screen hidden">
+        <div class="topbar">
+          <div class="level-pill"><span class="lp-num">LV <span id="menu-level">1</span></span><span id="menu-theme" class="lp-theme">SUNSET STRIP</span></div>
+          <div class="topbar-right">
+            <button class="round-btn small tgl-music" aria-pressed="true" aria-label="Music"><svg><use href="#i-music" /></svg></button>
+            <button class="round-btn small tgl-sfx" aria-pressed="true" aria-label="Sound effects"><svg><use href="#i-sound" /></svg></button>
+            <div class="gems-chip"><svg class="gem-icon"><use href="#i-gem" /></svg><span id="menu-gems">0</span></div>
+          </div>
         </div>
-        <div class="controls">
-          <p class="ctl-touch">Drag left and right to steer. Your squad fires on its own.</p>
-          <p class="ctl-keys">&larr; &rarr; or A D to steer &middot; your squad fires on its own &middot; Esc to pause</p>
-          <p>Walk through <b class="good">+</b> gates to grow your squad. Shoot <b class="bad">&minus;</b> gates to raise them.<br />An enemy that reaches you takes as many members as its number.</p>
+        <h1 class="logo logo-menu" aria-label="Neon Legion"><span class="logo-neon">NEON</span><span class="logo-legion">LEGION</span></h1>
+        <div class="menu-actions">
+          <button id="btn-play" class="btn btn-gold btn-xl">PLAY</button>
+          <div class="btn-row">
+            <button id="btn-coop" class="btn btn-blue"><svg class="btn-ico"><use href="#i-users" /></svg>CO-OP</button>
+            <button id="btn-shop" class="btn btn-purple"><svg class="btn-ico"><use href="#i-up" /></svg>UPGRADES</button>
+          </div>
+          <p class="hint ctl-touch">Drag to steer · your squad fires on its own</p>
+          <p class="hint ctl-keys">← → or A D to steer · your squad fires on its own · Esc pauses</p>
         </div>
       </section>
 
       <section id="screen-shop" class="screen hidden">
-        <h2 class="heading">UPGRADES</h2>
-        <div class="gems-chip big"><span class="gem-icon"></span><span id="shop-gems">0</span></div>
-        <div id="shop-list" class="shop-list"></div>
-        <button id="btn-shop-back" class="btn btn-ghost">BACK</button>
+        <div class="panel">
+          <h2 class="ribbon">UPGRADES</h2>
+          <div class="gems-chip big"><svg class="gem-icon"><use href="#i-gem" /></svg><span id="shop-gems">0</span></div>
+          <div id="shop-list" class="shop-list"></div>
+          <button id="btn-shop-back" class="btn btn-blue">BACK</button>
+        </div>
       </section>
 
       <section id="screen-coop" class="screen hidden">
-        <h2 class="heading">CO-OP</h2>
-        <div id="coop-choose" class="stack">
-          <p class="sub">Play the same level with a friend. Each of you steers your own squad.</p>
-          <button id="btn-host" class="btn">HOST A GAME</button>
-          <p class="or">or join with a code</p>
-          <form id="join-form" class="join-row">
-            <input id="join-code" maxlength="5" placeholder="CODE" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="Session code" />
-            <button id="btn-join" class="btn btn-ghost" type="submit">JOIN</button>
-          </form>
-          <p id="coop-note" class="note"></p>
+        <div class="panel">
+          <h2 class="ribbon ribbon-blue">CO-OP</h2>
+          <div id="coop-choose" class="stack">
+            <p class="sub">Play the same level with a friend. You each steer your own squad.</p>
+            <button id="btn-host" class="btn btn-gold">HOST A GAME</button>
+            <p class="or">or join with a code</p>
+            <form id="join-form" class="join-row">
+              <input id="join-code" maxlength="5" placeholder="CODE" autocomplete="off" autocapitalize="characters" spellcheck="false" aria-label="Session code" />
+              <button id="btn-join" class="btn btn-blue" type="submit">JOIN</button>
+            </form>
+            <p id="coop-note" class="note"></p>
+          </div>
+          <div id="coop-session" class="stack hidden">
+            <span class="hud-tag">SESSION CODE</span>
+            <div id="coop-code" class="code">-----</div>
+            <button id="btn-copy" class="btn-small">COPY CODE</button>
+            <p id="coop-status" class="sub">Waiting for your friend to join…</p>
+            <button id="btn-coop-start" class="btn btn-gold" disabled>START LEVEL <span id="coop-level">1</span></button>
+          </div>
+          <p id="coop-error" class="error hidden" role="alert"></p>
+          <button id="btn-coop-back" class="btn btn-blue">BACK</button>
         </div>
-        <div id="coop-session" class="stack hidden">
-          <span class="label">SESSION CODE</span>
-          <div id="coop-code" class="code">-----</div>
-          <button id="btn-copy" class="btn-small">COPY CODE</button>
-          <p id="coop-status" class="sub">Waiting for your friend to join…</p>
-          <button id="btn-coop-start" class="btn" disabled>START LEVEL <span id="coop-level">1</span></button>
-        </div>
-        <p id="coop-error" class="error hidden" role="alert"></p>
-        <button id="btn-coop-back" class="btn btn-ghost">BACK</button>
       </section>
 
       <section id="screen-pause" class="screen hidden">
-        <h2 id="pause-title" class="heading">PAUSED</h2>
-        <p id="pause-note" class="sub hidden">Co-op keeps running while this menu is open.</p>
-        <div class="stack">
-          <button id="btn-resume" class="btn">RESUME</button>
-          <button id="btn-quit" class="btn btn-ghost">MAIN MENU</button>
-        </div>
-        <div class="toggles">
-          <button class="toggle tgl-music" aria-pressed="true">MUSIC</button>
-          <button class="toggle tgl-sfx" aria-pressed="true">SOUND FX</button>
+        <div class="panel">
+          <h2 id="pause-title" class="ribbon">PAUSED</h2>
+          <p id="pause-note" class="sub hidden">Co-op keeps running while this menu is open.</p>
+          <div class="stack">
+            <button id="btn-resume" class="btn btn-gold">RESUME</button>
+            <button id="btn-quit" class="btn btn-blue">MAIN MENU</button>
+          </div>
+          <div class="toggles">
+            <button class="round-btn tgl-music" aria-pressed="true" aria-label="Music"><svg><use href="#i-music" /></svg></button>
+            <button class="round-btn tgl-sfx" aria-pressed="true" aria-label="Sound effects"><svg><use href="#i-sound" /></svg></button>
+          </div>
         </div>
       </section>
 
       <section id="screen-result" class="screen hidden">
-        <h2 id="result-title" class="heading">LEVEL 1 CLEARED</h2>
-        <p id="result-sub" class="sub"></p>
-        <div class="gems-chip big">+<span id="result-gems">0</span><span class="gem-icon"></span></div>
-        <p id="result-wait" class="sub hidden">Waiting for the host to start the next level…</p>
-        <div class="stack">
-          <button id="btn-next" class="btn">NEXT LEVEL</button>
-          <button id="btn-result-shop" class="btn btn-ghost">UPGRADES</button>
-          <button id="btn-result-menu" class="btn btn-ghost">MAIN MENU</button>
+        <div class="panel">
+          <h2 id="result-title" class="ribbon">LEVEL 1 CLEARED</h2>
+          <p id="result-sub" class="sub"></p>
+          <div class="reward">
+            <span class="reward-label">GEMS EARNED</span>
+            <div class="gems-chip big"><svg class="gem-icon"><use href="#i-gem" /></svg>+<span id="result-gems">0</span></div>
+          </div>
+          <p id="result-wait" class="sub hidden">Waiting for the host to start the next level…</p>
+          <div class="stack">
+            <button id="btn-next" class="btn btn-gold">NEXT LEVEL</button>
+            <div class="btn-row">
+              <button id="btn-result-shop" class="btn btn-purple">UPGRADES</button>
+              <button id="btn-result-menu" class="btn btn-blue">MAIN MENU</button>
+            </div>
+          </div>
         </div>
       </section>
     </div>
@@ -116,7 +158,7 @@
     <div id="toast" class="toast hidden" role="status"></div>
 
     <div id="nowebgl" hidden>
-      <p>Neon Runner needs WebGL, which isn't available in this browser.<br />Try a recent version of Chrome, Safari, Firefox or Edge.</p>
+      <p>Neon Legion needs WebGL, which isn't available in this browser.<br />Try a recent version of Chrome, Safari, Firefox or Edge.</p>
     </div>
 
     <script type="module" src="/src/main.ts"></script>

@@ -1,5 +1,6 @@
 import { UPGRADES, UPGRADE_IDS, upgradeCost, type SaveData, type UpgradeId } from '../game/Progress';
 import { POWER_KINDS, POWER_SPECS, type PowerKind } from '../game/Powerups';
+import { splashArt } from './splashArt';
 
 export type Screen = 'menu' | 'shop' | 'coop' | 'playing' | 'paused' | 'result';
 
@@ -17,6 +18,8 @@ export interface UIHandlers {
   startCoop: () => void;
   toggleMusic: () => void;
   toggleSfx: () => void;
+  /** The splash screen was dismissed (a user gesture: safe to start audio). */
+  splashDone: () => void;
 }
 
 function $<T extends HTMLElement = HTMLElement>(id: string): T {
@@ -24,6 +27,25 @@ function $<T extends HTMLElement = HTMLElement>(id: string): T {
   if (!el) throw new Error(`Missing #${id}`);
   return el as T;
 }
+
+/** Icon and colours for each upgrade card. */
+const SHOP_LOOK: Record<UpgradeId, { c1: string; c2: string; icon: string }> = {
+  squad: {
+    c1: '#5fdcff',
+    c2: '#1f84ff',
+    icon: '<svg viewBox="0 0 24 24"><use href="#i-users" /></svg>',
+  },
+  power: {
+    c1: '#ff9a7a',
+    c2: '#e0303a',
+    icon: '<svg viewBox="0 0 24 24"><path d="M13 2 4 14h6l-1 8 9-12h-6z" /></svg>',
+  },
+  rate: {
+    c1: '#ffe14d',
+    c2: '#ff9d1c',
+    icon: '<svg viewBox="0 0 24 24"><path d="M3 5l7 7-7 7zM12 5l7 7-7 7z" /></svg>',
+  },
+};
 
 /** Thin wrapper over the DOM overlay in index.html. */
 export class UI {
@@ -48,6 +70,8 @@ export class UI {
   private lastGems = -1;
   private lastProgress = -1;
   private lastPowers = '';
+  /** True until the player taps through the splash screen. */
+  splashActive = true;
 
   constructor(h: UIHandlers) {
     const on = (id: string, fn: () => void) => $(id).addEventListener('click', fn);
@@ -77,7 +101,29 @@ export class UI {
     });
     // Keep presses on overlay controls from also counting as gameplay taps or drags.
     $('ui').addEventListener('pointerdown', (e) => {
-      if ((e.target as HTMLElement).closest('button, input, form')) e.stopPropagation();
+      if ((e.target as HTMLElement).closest('button, input, form, #splash')) e.stopPropagation();
+    });
+
+    // Splash: art sized to the screen; tap anywhere (or press a key) to continue.
+    const splash = $('splash');
+    const drawArt = () => {
+      if (this.splashActive) $('splash-art').innerHTML = splashArt(window.innerWidth, window.innerHeight);
+    };
+    drawArt();
+    window.addEventListener('resize', drawArt);
+    const leave = () => {
+      if (!this.splashActive) return;
+      this.splashActive = false;
+      splash.classList.add('leaving');
+      splash.addEventListener('animationend', () => splash.classList.add('hidden'), { once: true });
+      h.splashDone();
+    };
+    splash.addEventListener('click', leave);
+    window.addEventListener('keydown', (e) => {
+      if (this.splashActive && (e.code === 'Enter' || e.code === 'Space')) {
+        e.preventDefault();
+        leave();
+      }
     });
   }
 
@@ -98,8 +144,9 @@ export class UI {
     else if (screen === 'playing') (document.activeElement as HTMLElement | null)?.blur?.();
   }
 
-  setMenu(save: SaveData): void {
+  setMenu(save: SaveData, themeName: string): void {
     $('menu-level').textContent = String(save.level);
+    $('menu-theme').textContent = themeName;
     $('menu-gems').textContent = String(save.gems);
     this.setToggles(save.music, save.sfx);
   }
@@ -220,7 +267,10 @@ export class UI {
 
   /** `coop`: null in solo, otherwise this player's role. */
   showResult(won: boolean, level: number, progress: number, gems: number, coop: 'host' | 'guest' | null): void {
-    $('result-title').textContent = won ? `LEVEL ${level} CLEARED` : coop ? 'SQUADS LOST' : 'SQUAD LOST';
+    const title = $('result-title');
+    title.textContent = won ? `LEVEL ${level} CLEARED!` : coop ? 'SQUADS LOST' : 'SQUAD LOST';
+    title.classList.toggle('won', won);
+    title.classList.toggle('lost', !won);
     $('result-sub').textContent = won
       ? 'Boss defeated. Spend your gems or push on.'
       : `You made it ${Math.round(progress * 100)}% of the way. Upgrades will help.`;
@@ -244,17 +294,20 @@ export class UI {
         const now = def.format(def.value(lv));
         const next = def.format(def.value(lv + 1));
 
+        const look = SHOP_LOOK[id];
+        const filled = Math.round((lv / def.max) * 10);
         const row = document.createElement('div');
         row.className = 'upgrade';
         row.innerHTML = `
+          <div class="up-icon" style="--c1:${look.c1};--c2:${look.c2}">${look.icon}</div>
           <div class="up-info">
-            <div class="up-name">${def.name}<span class="up-lv">LV ${lv}</span></div>
-            <div class="up-desc">${def.desc}</div>
-            <div class="up-val">${maxed ? `${now} (max)` : `${now} → <b>${next}</b>`}</div>
+            <div class="up-name">${def.name} <span class="up-lv">LV ${lv}</span></div>
+            <div class="pips">${Array.from({ length: 10 }, (_, k) => `<i class="${k < filled ? 'on' : ''}"></i>`).join('')}</div>
+            <div class="up-val">${maxed ? `${now} · max` : `${now} → <b>${next}</b>`}</div>
           </div>
-          <button class="btn-buy" data-id="${id}" aria-label="Buy ${def.name} upgrade" ${
+          <button class="btn btn-green btn-buy" data-id="${id}" aria-label="Buy ${def.name} upgrade" ${
             maxed || save.gems < cost ? 'disabled' : ''
-          }>${maxed ? 'MAX' : `<span class="gem-icon"></span>${cost}`}</button>`;
+          }>${maxed ? 'MAX' : `<svg class="gem-icon"><use href="#i-gem" /></svg>${cost}`}</button>`;
         return row;
       }),
     );

@@ -17,6 +17,7 @@ const DOME_RADIUS = 290;
  */
 export class Backdrop {
   private skyMat: THREE.ShaderMaterial;
+  private sunMat: THREE.ShaderMaterial;
 
   constructor(scene: THREE.Scene) {
     this.skyMat = new THREE.ShaderMaterial({
@@ -80,9 +81,15 @@ export class Backdrop {
     dome.frustumCulled = false;
     scene.add(dome);
 
-    scene.add(buildSun());
+    this.sunMat = buildSun();
+    scene.add(this.sunMat.userData.mesh as THREE.Mesh);
     scene.add(buildRidge(-232, 0x1a0733, 0x8a3bff, 0.6, 1.0, 11));
     scene.add(buildRidge(-205, 0x0c0219, 0xff2bd6, 0.9, 0.75, 29));
+  }
+
+  setSun(top: number, bottom: number): void {
+    (this.sunMat.uniforms.uTop.value as THREE.Color).setHex(top);
+    (this.sunMat.uniforms.uBottom.value as THREE.Color).setHex(bottom);
   }
 
   /** Tint the horizon glow (mood lighting). */
@@ -95,8 +102,9 @@ export class Backdrop {
   }
 }
 
-function buildSun(): THREE.Mesh {
+function buildSun(): THREE.ShaderMaterial {
   const mat = new THREE.ShaderMaterial({
+    uniforms: { uTop: { value: new THREE.Color(0xffd14d) }, uBottom: { value: new THREE.Color(0xff2e8c) } },
     fog: false,
     depthWrite: false,
     transparent: true,
@@ -108,6 +116,8 @@ function buildSun(): THREE.Mesh {
         gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0);
       }`,
     fragmentShader: /* glsl */ `
+      uniform vec3 uTop;
+      uniform vec3 uBottom;
       varying vec2 vUv;
       void main() {
         // The quad is twice the sun's size; the outer half holds the halo.
@@ -124,8 +134,8 @@ function buildSun(): THREE.Mesh {
         float stripes = smoothstep(gap - bw, gap + bw, band);
         if (y > 0.55) stripes = 1.0;
 
-        vec3 top = vec3(1.0, 0.82, 0.3);
-        vec3 bottom = vec3(1.0, 0.18, 0.55);
+        vec3 top = uTop;
+        vec3 bottom = uBottom;
         vec3 sunCol = mix(bottom, top, smoothstep(0.05, 0.95, y));
 
         // Halo fades to exactly zero before the quad's edge, so no box outline shows.
@@ -138,7 +148,8 @@ function buildSun(): THREE.Mesh {
   const sun = new THREE.Mesh(new THREE.PlaneGeometry(150, 150), mat);
   sun.position.set(0, 18, -270);
   sun.renderOrder = -1;
-  return sun;
+  mat.userData.mesh = sun;
+  return mat;
 }
 
 /**

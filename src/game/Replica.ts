@@ -1,4 +1,4 @@
-import { ENEMY_KINDS, ENEMY_SPECS, SHIELD } from './Enemies';
+import { ENEMY_KINDS, ENEMY_SPECS, SHIELD, hitHalfW } from './Enemies';
 import { POWER_KINDS } from './Powerups';
 import { PHASES, MAX_STREAMS, type Phase } from './Sim';
 import type { World, Player } from './World';
@@ -110,18 +110,18 @@ export class Replica {
     }
 
     // Gates
-    const pairs = new Map<number, { x0: number; x1: number; value: number }[]>();
+    const pairs = new Map<number, { x0: number; x1: number; value: number; mul: number }[]>();
     const pairZ = new Map<number, number>();
-    for (let i = 0; i + 4 < s.g.length; i += 5) {
-      const [id, x0, x1, z, value] = s.g.slice(i, i + 5);
+    for (let i = 0; i + 5 < s.g.length; i += 6) {
+      const [id, x0, x1, z, value, mul] = s.g.slice(i, i + 6);
       if (!pairs.has(id)) pairs.set(id, []);
-      pairs.get(id)!.push({ x0, x1, value });
+      pairs.get(id)!.push({ x0, x1, value, mul });
       pairZ.set(id, z);
     }
     for (const [id, defs] of pairs) {
       const pair = w.gates.byId(id);
       if (!pair) w.gates.spawnPair(defs, pairZ.get(id)!, id);
-      else pair.gates.forEach((g, j) => defs[j] && g.value !== defs[j].value && w.gates.setValue(g, defs[j].value));
+      else pair.gates.forEach((g, j) => defs[j] && (g.value !== defs[j].value || g.mul !== defs[j].mul) && w.gates.setValue(g, defs[j].value, defs[j].mul));
       this.gateT.set(id, pairZ.get(id)!);
     }
     for (const pair of [...w.gates.pairs]) {
@@ -232,9 +232,10 @@ export class Replica {
       for (const e of enemies.active) {
         const p = e.group.position;
         const r = ENEMY_SPECS[e.kind].radius;
+        const hw = hitHalfW(e.kind);
         const shielded =
           e.shieldHp > 0 && Math.abs(x - p.x) < SHIELD.halfW && Math.abs(z - enemies.shieldZ(e)) < SHIELD.depth + 0.25;
-        if (shielded || (Math.abs(x - p.x) < r && Math.abs(z - p.z) < r + 0.2)) {
+        if (shielded || (Math.abs(x - p.x) < hw && Math.abs(z - p.z) < r + 0.2)) {
           b.remove(i);
           continue outer;
         }

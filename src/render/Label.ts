@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 
-const FONT_FAMILY = "'Orbitron', 'Segoe UI', system-ui, sans-serif";
+const FONT_FAMILY = "'Lilita One', 'Arial Rounded MT Bold', 'Trebuchet MS', system-ui, sans-serif";
 const all = new Set<TextLabel>();
 
 // Labels drawn before the web font arrives use a fallback face; redraw them once it loads.
@@ -72,12 +72,12 @@ export class TextLabel {
     }
 
     let size = h * 0.62;
-    ctx.font = `${style.weight ?? 800} ${size}px ${FONT_FAMILY}`;
+    ctx.font = `${style.weight ?? 400} ${size}px ${FONT_FAMILY}`;
     const maxW = w * 0.86;
     const measured = ctx.measureText(this.text).width;
     if (measured > maxW) {
       size *= maxW / measured;
-      ctx.font = `${style.weight ?? 800} ${size}px ${FONT_FAMILY}`;
+      ctx.font = `${style.weight ?? 400} ${size}px ${FONT_FAMILY}`;
     }
     ctx.textAlign = 'center';
     ctx.textBaseline = 'middle';

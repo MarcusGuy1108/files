@@ -1,13 +1,16 @@
 import * as THREE from 'three';
 import { TextLabel } from '../render/Label';
+import { fmtCount } from './Enemies';
 
 const HEIGHT = 2.4;
 const DEPTH = 0.3; // half-depth used for bullet hits
 const DESPAWN_Z = 4;
-const MAX_VALUE = 999;
+// High enough that gate values keep scaling on very late levels.
+const MAX_VALUE = 9_999_999;
 
 export const GATE_GOOD = 0x22ff88;
 export const GATE_BAD = 0xff3355;
+export const GATE_MUL = 0xffd23f;
 
 export interface Gate {
   group: THREE.Group;
@@ -18,6 +21,8 @@ export interface Gate {
   top: THREE.Mesh;
   text: TextLabel;
   value: number;
+  /** Multiplier gates (×2): 0 for the normal +N / −N kind. Shooting doesn't change them. */
+  mul: number;
   /** Points absorbed towards the next +1. */
   progress: number;
   x0: number;
@@ -35,6 +40,7 @@ export interface GateDef {
   x0: number;
   x1: number;
   value: number;
+  mul?: number;
 }
 
 /** +N / −N gates. Walking through one changes the squad size; shooting one raises its number. */
@@ -66,7 +72,7 @@ export class Gates {
       g.posts[0].position.x = -w / 2;
       g.posts[1].position.x = w / 2;
       g.group.visible = true;
-      this.setValue(g, d.value);
+      this.setValue(g, d.value, d.mul ?? 0);
       pair.gates.push(g);
     }
     this.pairs.push(pair);
@@ -75,11 +81,12 @@ export class Gates {
 
   /** Bullet hit: every `cost` points absorbed raises the gate by one. Returns the gain. */
   hit(g: Gate, points: number, cost: number): number {
+    if (g.mul) return 0;
     g.progress += points;
     const gain = Math.floor(g.progress / cost);
     if (gain > 0) {
       g.progress -= gain * cost;
-      this.setValue(g, Math.min(MAX_VALUE, g.value + gain));
+      this.setValue(g, Math.min(MAX_VALUE, g.value + gain), 0);
     }
     return gain;
   }
@@ -141,13 +148,13 @@ export class Gates {
     while (this.pairs.length) this.removePair(this.pairs[0]);
   }
 
-  setValue(g: Gate, v: number): void {
+  setValue(g: Gate, v: number, mul = g.mul): void {
     g.value = v;
-    const good = v > 0;
-    const color = good ? GATE_GOOD : GATE_BAD;
+    g.mul = mul;
+    const color = mul ? GATE_MUL : v > 0 ? GATE_GOOD : GATE_BAD;
     g.panelMat.color.setHex(color);
     g.frameMat.color.setHex(color);
-    g.text.set(v > 0 ? `+${v}` : v < 0 ? `−${-v}` : '0');
+    g.text.set(mul ? `×${mul}` : v > 0 ? `+${fmtCount(v)}` : v < 0 ? `−${fmtCount(-v)}` : '0');
   }
 
   private create(): Gate {
@@ -184,6 +191,6 @@ export class Gates {
 
     group.visible = false;
     this.parent.add(group);
-    return { group, panelMat, frameMat, panel, posts, top, text, value: 0, progress: 0, x0: 0, x1: 0, pair: null };
+    return { group, panelMat, frameMat, panel, posts, top, text, value: 0, mul: 0, progress: 0, x0: 0, x1: 0, pair: null };
   }
 }

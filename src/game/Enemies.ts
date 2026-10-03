@@ -2,8 +2,12 @@ import * as THREE from 'three';
 import { TextLabel, labelSprite } from '../render/Label';
 import { TRACK_HALF } from './Track';
 
-export type EnemyKind = 'grunt' | 'brute' | 'dasher' | 'bearer' | 'boss';
-export const ENEMY_KINDS: EnemyKind[] = ['grunt', 'brute', 'dasher', 'bearer', 'boss'];
+/**
+ * Everything on the track that has a health number. The last four are obstacles ("props"):
+ * they don't move, but they block the way, take bullets, and cost members if you run into them.
+ */
+export type EnemyKind = 'grunt' | 'brute' | 'dasher' | 'bearer' | 'boss' | 'barrel' | 'tyres' | 'crate' | 'barrier';
+export const ENEMY_KINDS: EnemyKind[] = ['grunt', 'brute', 'dasher', 'bearer', 'boss', 'barrel', 'tyres', 'crate', 'barrier'];
 
 interface KindSpec {
   radius: number;
@@ -15,6 +19,10 @@ interface KindSpec {
   labelW: number;
   /** Strides per second of the walk cycle. */
   stride: number;
+  /** Obstacles: stand still, no limbs. */
+  prop?: boolean;
+  /** Half-width for hits, when wider than `radius` (barriers). */
+  halfW?: number;
 }
 
 export const ENEMY_SPECS: Record<EnemyKind, KindSpec> = {
@@ -23,7 +31,27 @@ export const ENEMY_SPECS: Record<EnemyKind, KindSpec> = {
   dasher: { radius: 0.45, height: 1.0, speed: 6.5, color: 0xb45cff, drop: { chance: 0.25, count: 1 }, labelW: 1.3, stride: 0 },
   bearer: { radius: 0.85, height: 2.0, speed: 1.6, color: 0x4d7cff, drop: { chance: 1, count: 2 }, labelW: 1.8, stride: 5 },
   boss: { radius: 2.0, height: 4.2, speed: 1.6, color: 0xff2b8a, drop: { chance: 0, count: 0 }, labelW: 3.2, stride: 3.2 },
+  barrel: { radius: 0.55, height: 1.15, speed: 0, color: 0xff4a1f, drop: { chance: 0, count: 0 }, labelW: 1.4, stride: 0, prop: true },
+  tyres: { radius: 0.7, height: 1.05, speed: 0, color: 0x2a2d38, drop: { chance: 0, count: 0 }, labelW: 1.5, stride: 0, prop: true },
+  crate: { radius: 0.65, height: 1.2, speed: 0, color: 0x8a4dff, drop: { chance: 1, count: 2 }, labelW: 1.5, stride: 0, prop: true },
+  barrier: { radius: 0.5, height: 1.3, speed: 0, color: 0x5d6478, drop: { chance: 0, count: 0 }, labelW: 1.8, stride: 0, prop: true, halfW: 1.9 },
 };
+
+/** Half-width used for bullet hits and running into it. */
+export function hitHalfW(kind: EnemyKind): number {
+  const s = ENEMY_SPECS[kind];
+  return s.halfW ?? s.radius;
+}
+
+/** Barrels blow up when destroyed, hurting everything within this radius. */
+export const BARREL_BLAST = 2.8;
+
+/** Compact numbers for labels: 12345 → "12.3K". */
+export function fmtCount(n: number): string {
+  if (n >= 1e6) return `${(n / 1e6).toFixed(n >= 1e7 ? 0 : 1)}M`;
+  if (n >= 1e4) return `${(n / 1e3).toFixed(n >= 1e5 ? 0 : 1)}K`;
+  return String(n);
+}
 
 /** Shield bearers carry a wall in front of them that soaks up bullets until it breaks. */
 export const SHIELD = { halfW: 1.15, height: 1.8, depth: 0.25, ahead: 1.05 };
@@ -82,7 +110,17 @@ interface Rig {
 
 export class Enemies {
   readonly active: Enemy[] = [];
-  private free: Record<EnemyKind, Enemy[]> = { grunt: [], brute: [], dasher: [], bearer: [], boss: [] };
+  private free: Record<EnemyKind, Enemy[]> = {
+    grunt: [],
+    brute: [],
+    dasher: [],
+    bearer: [],
+    boss: [],
+    barrel: [],
+    tyres: [],
+    crate: [],
+    barrier: [],
+  };
   private nextId = 1;
 
   constructor(private parent: THREE.Object3D) {
@@ -92,6 +130,10 @@ export class Enemies {
       ['dasher', 12],
       ['bearer', 6],
       ['boss', 1],
+      ['barrel', 10],
+      ['tyres', 8],
+      ['crate', 6],
+      ['barrier', 6],
     ];
     for (const [kind, n] of prewarm) for (let i = 0; i < n; i++) this.free[kind].push(this.create(kind));
   }
@@ -103,10 +145,10 @@ export class Enemies {
     e.hp = e.maxHp = hp;
     e.shieldHp = shieldHp;
     e.flash = 0;
-    e.walking = kind !== 'boss';
+    e.walking = kind !== 'boss' && !ENEMY_SPECS[kind].prop;
     e.phase = Math.random() * Math.PI * 2;
     e.age = 0;
-    e.drop = z > DROP_IN_Z && kind !== 'boss' ? DROP_TIME : 0;
+    e.drop = z > DROP_IN_Z && kind !== 'boss' && !ENEMY_SPECS[kind].prop ? DROP_TIME : 0;
     e.mode = 'walk';
     e.modeT = 0;
     e.hopIn = 1.5 + Math.random() * 2.5;
@@ -115,7 +157,7 @@ export class Enemies {
     e.group.position.set(x, 0, z);
     e.group.scale.setScalar(1);
     e.group.visible = true;
-    e.label.set(String(Math.ceil(hp)));
+    e.label.set(fmtCount(Math.ceil(hp)));
     if (e.shield) e.shield.visible = shieldHp > 0;
     e.shieldLabel?.set(String(Math.ceil(shieldHp)));
     this.active.push(e);
@@ -143,7 +185,7 @@ export class Enemies {
 
   setHp(e: Enemy, hp: number): void {
     e.hp = hp;
-    e.label.set(String(Math.max(0, Math.ceil(hp))));
+    e.label.set(fmtCount(Math.max(0, Math.ceil(hp))));
   }
 
   setShield(e: Enemy, hp: number): void {
@@ -245,6 +287,14 @@ export class Enemies {
     // Hit flash and squash.
     e.flash = Math.max(0, e.flash - dt);
     const hit = e.flash > 0 ? 1 : 0;
+    if (spec.prop) {
+      // Obstacles just shudder when hit (and barrels flicker like they're about to go).
+      e.mat.emissiveIntensity = hit ? 2.5 : e.kind === 'barrel' ? 1 + 0.6 * Math.max(0, Math.sin(time * 6 + e.phase)) : 1;
+      body.rotation.z = hit ? (Math.random() - 0.5) * 0.12 : 0;
+      body.scale.setScalar(1 + hit * 0.05);
+      p.y = 0;
+      return;
+    }
     const windup = e.mode === 'windup';
     const pulse = windup ? 0.5 + 0.5 * Math.sin(e.modeT * 30) : 0;
     e.mat.emissiveIntensity = hit ? 2.5 : 1 + pulse * 2;
@@ -395,11 +445,79 @@ function limb(w: number, len: number, mat: THREE.Material, x: number, y: number)
   return pivot;
 }
 
+const hazardMat = new THREE.MeshBasicMaterial({ color: 0xffd23f });
+const tyreRimMat = new THREE.MeshBasicMaterial({ color: 0x29f0ff });
+const crateEdgeMat = new THREE.LineBasicMaterial({ color: 0xd6b8ff });
+const warnLightMat = new THREE.MeshBasicMaterial({ color: 0xff2a3a });
+
+/** Obstacles: barrels, tyre stacks, crates and concrete barriers. */
+function buildProp(kind: EnemyKind, spec: KindSpec, mat: THREE.Material): THREE.Group {
+  const g = new THREE.Group();
+  const r = spec.radius;
+  const h = spec.height;
+  if (kind === 'barrel') {
+    const drum = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.85, r * 0.85, h, 14), mat);
+    drum.position.y = h / 2;
+    g.add(drum);
+    for (const y of [0.22, 0.78]) {
+      const band = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.88, r * 0.88, h * 0.08, 14), darkMat);
+      band.position.y = h * y;
+      g.add(band);
+    }
+    // Hazard stripe so it reads as "explosive".
+    const stripe = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.87, r * 0.87, h * 0.12, 14), hazardMat);
+    stripe.position.y = h * 0.5;
+    g.add(stripe);
+  } else if (kind === 'tyres') {
+    const tyreGeo = new THREE.TorusGeometry(r * 0.66, r * 0.3, 8, 18);
+    for (let i = 0; i < 3; i++) {
+      const t = new THREE.Mesh(tyreGeo, mat);
+      t.rotation.x = Math.PI / 2;
+      t.position.set((i % 2) * 0.06, r * 0.3 + i * r * 0.55, 0);
+      g.add(t);
+    }
+    const rim = new THREE.Mesh(new THREE.TorusGeometry(r * 0.66, 0.035, 6, 24), tyreRimMat);
+    rim.rotation.x = Math.PI / 2;
+    rim.position.y = r * 0.3 + 2 * r * 0.55 + r * 0.31;
+    g.add(rim);
+  } else if (kind === 'crate') {
+    const geo = new THREE.BoxGeometry(r * 1.6, h, r * 1.6);
+    const box = new THREE.Mesh(geo, mat);
+    box.position.y = h / 2;
+    box.add(new THREE.LineSegments(new THREE.EdgesGeometry(geo), crateEdgeMat));
+    g.add(box);
+    // A gem emblem on the front: crates hold gems.
+    const gem = new THREE.Mesh(new THREE.OctahedronGeometry(r * 0.32, 0), new THREE.MeshBasicMaterial({ color: 0x3dffa8 }));
+    gem.position.set(0, h / 2, r * 0.82);
+    gem.scale.z = 0.3;
+    g.add(gem);
+  } else {
+    const w = (spec.halfW ?? r) * 2;
+    const slab = new THREE.Mesh(new THREE.BoxGeometry(w, h, 0.7), mat);
+    slab.position.y = h / 2;
+    g.add(slab);
+    // Black-and-yellow chevrons along the face.
+    const n = 7;
+    for (let i = 0; i < n; i++) {
+      const c = new THREE.Mesh(new THREE.BoxGeometry(w / n - 0.06, h * 0.22, 0.04), i % 2 ? darkMat : hazardMat);
+      c.position.set(-w / 2 + (i + 0.5) * (w / n), h * 0.62, 0.37);
+      g.add(c);
+    }
+    for (const s of [-1, 1]) {
+      const light = new THREE.Mesh(new THREE.SphereGeometry(0.1, 8, 6), warnLightMat);
+      light.position.set((s * w) / 2.6, h + 0.08, 0);
+      g.add(light);
+    }
+  }
+  return g;
+}
+
 function buildBody(kind: EnemyKind, spec: KindSpec, mat: THREE.Material): { body: THREE.Group; rig: Rig } {
   const g = new THREE.Group();
   const rig: Rig = { legs: [], arms: [], head: null, spin: null };
   const r = spec.radius;
   const h = spec.height;
+  if (spec.prop) return { body: buildProp(kind, spec, mat), rig };
 
   if (kind === 'dasher') {
     // A hovering, pointed drone with a spinning ring: reads as "fast" at a glance.
