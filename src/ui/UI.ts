@@ -187,6 +187,22 @@ export class UI {
     this.pops.replaceChildren();
   }
 
+  /** Big centred announcement (events, boss). Restarts its animation each time. */
+  banner(title: string, sub: string, color: string): void {
+    const el = $('banner');
+    $('banner-title').textContent = title;
+    $('banner-sub').textContent = sub;
+    el.style.setProperty('--banner', color);
+    el.classList.remove('hidden');
+    el.style.animation = 'none';
+    void el.offsetWidth;
+    el.style.animation = '';
+  }
+
+  hideBanner(): void {
+    $('banner').classList.add('hidden');
+  }
+
   toast(message: string, ms = 3500): void {
     this.toastEl.textContent = message;
     this.toastEl.classList.remove('hidden');

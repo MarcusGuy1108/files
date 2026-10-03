@@ -599,6 +599,60 @@ body {
   outline-offset: 2px;
 }
 
+/* ---------- Event banner ---------- */
+
+.event-banner {
+  position: absolute;
+  left: 50%;
+  top: 24%;
+  transform: translateX(-50%);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 6px;
+  width: max-content;
+  max-width: calc(100vw - 32px);
+  text-align: center;
+  pointer-events: none;
+  color: var(--banner, var(--pink));
+  animation: banner 2.4s ease-out forwards;
+}
+
+.event-banner b {
+  font-size: clamp(30px, 9vw, 60px);
+  font-weight: 800;
+  letter-spacing: 0.08em;
+  line-height: 1;
+  color: #fff;
+  text-shadow: 0 0 8px var(--banner, var(--pink)), 0 0 22px var(--banner, var(--pink)), 0 0 44px var(--banner, var(--pink));
+}
+
+.event-banner span {
+  font-family: system-ui, -apple-system, sans-serif;
+  font-size: 15px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-shadow: 0 0 6px rgba(0, 0, 0, 0.9);
+}
+
+@keyframes banner {
+  0% {
+    opacity: 0;
+    transform: translateX(-50%) scale(1.6);
+  }
+  12% {
+    opacity: 1;
+    transform: translateX(-50%) scale(1);
+  }
+  80% {
+    opacity: 1;
+  }
+  100% {
+    opacity: 0;
+    transform: translateX(-50%) translateY(-16px);
+  }
+}
+
 /* ---------- Co-op ---------- */
 
 .or {
@@ -699,6 +753,7 @@ input {
 
 @media (prefers-reduced-motion: reduce) {
   .pop,
+  .event-banner,
   .gems-chip.pulse,
   .new-best {
     animation-duration: 0.01s;

@@ -2,6 +2,9 @@ import { ENEMY_SPECS, SHIELD, type Enemy } from './Enemies';
 import { POWER_SPECS } from './Powerups';
 import { noPowers, type Player, type World } from './World';
 import type { LevelPlan } from './Level';
+import { METEOR_RADIUS } from './Hazards';
+import { TRACK_HALF } from './Track';
+import type { LevelEventKind } from './events';
 import type { GameEvent } from './events';
 
 /** run: scrolling. arena: stopped, boss walks in. won: boss down. lost: every squad wiped. */
@@ -29,6 +32,12 @@ export class Sim {
   result: 'won' | 'lost' | null = null;
   private eventIdx = 0;
   private gatePerBullet = [1, 1];
+  /** Mid-level events waiting for the squad to reach them. */
+  private scheduled: { at: number; kind: LevelEventKind; span: number }[] = [];
+  private meteorUntil = 0;
+  private meteorTimer = 0;
+  private meteors: { x: number; z: number; t: number }[] = [];
+  private bossRoaring = false;
   /** Called once per volley, for the shot sound. */
   onVolley: ((player: number) => void) | null = null;
 
@@ -49,6 +58,10 @@ export class Sim {
     this.plan = plan;
     this.distance = 0;
     this.eventIdx = 0;
+    this.scheduled = [];
+    this.meteors = [];
+    this.meteorUntil = 0;
+    this.bossRoaring = false;
     this.boss = null;
     this.result = null;
     this.setPhase('run');
@@ -91,7 +104,10 @@ export class Sim {
       alive.map((p) => p.squad.x),
     );
     w.fx.update(dt, dz);
+    w.hazards.update(dt, dz, time);
     this.spawnEvents();
+    if (this.phase === 'run') this.runLevelEvents(dt, dz);
+    this.bossSummons();
 
     const fighting = this.phase === 'run' || this.phase === 'arena';
     for (const p of this.players) {
@@ -134,6 +150,8 @@ export class Sim {
         w.gates.spawnPair(ev.gates, z);
       } else if (ev.type === 'gems') {
         for (const g of ev.gems) w.gems.spawn(g.x, z + g.dz);
+      } else if (ev.type === 'event') {
+        this.scheduled.push(ev);
       } else {
         w.powerups.spawn(ev.kind, ev.x, z);
       }
@@ -143,6 +161,86 @@ export class Sim {
       this.boss = w.enemies.spawn('boss', 0, -(bossAt - this.distance), this.plan.bossHp);
       this.emit({ k: 'boss' });
     }
+  }
+
+  /** Start scheduled events when the squad reaches them, and run any in progress. */
+  private runLevelEvents(dt: number, dz: number): void {
+    while (this.scheduled.length && this.distance >= this.scheduled[0].at) {
+      const ev = this.scheduled.shift()!;
+      this.emit({ k: 'event', kind: ev.kind });
+      if (ev.kind === 'meteors') {
+        this.meteorUntil = this.distance + ev.span;
+        this.meteorTimer = 0.6;
+      } else if (ev.kind === 'ambush') {
+        this.ambush();
+      } else {
+        // Gem rush: a snaking trail of gems just ahead.
+        for (let i = 0; i < 14; i++) this.w.gems.spawn(Math.sin(i * 0.6) * (TRACK_HALF - 1), -28 - i * 2.2);
+      }
+    }
+
+    const alive = this.players.filter((p) => !p.wiped);
+    if (this.distance < this.meteorUntil && alive.length) {
+      this.meteorTimer -= dt;
+      if (this.meteorTimer <= 0) {
+        this.meteorTimer = Math.max(0.42, 0.75 - 0.03 * this.plan.level);
+        // Aim near a squad so standing still isn't safe.
+        const target = alive[Math.floor(Math.random() * alive.length)].squad;
+        const lim = TRACK_HALF - 0.6;
+        const x = Math.max(-lim, Math.min(lim, target.x + (Math.random() - 0.5) * 2.6));
+        const t = 1.5;
+        const z = -this.plan.speed * t; // scrolls to the squad's line as it lands
+        this.meteors.push({ x, z, t });
+        this.w.hazards.spawn(x, z, t);
+        this.emit({ k: 'meteor', x, z, t });
+      }
+    }
+
+    for (let i = this.meteors.length - 1; i >= 0; i--) {
+      const m = this.meteors[i];
+      m.t -= dt;
+      m.z += dz;
+      if (m.t > 0) continue;
+      this.meteors.splice(i, 1);
+      const hit = alive.find(
+        (p) => Math.abs(p.squad.x - m.x) < METEOR_RADIUS + p.squad.radius * 0.4 && Math.abs(m.z) < 1.5 + p.squad.radius * 0.5,
+      );
+      let loss = 0;
+      if (hit && hit.pw.shield <= 0) {
+        loss = Math.min(hit.squad.count, 2 + this.plan.level);
+        hit.squad.add(-loss);
+      }
+      this.emit({ k: 'boom', x: m.x, z: m.z, p: hit ? hit.idx : -1, loss });
+    }
+  }
+
+  /** Enemies drop out of the sky right in front of the squads. */
+  private ambush(): void {
+    const L = this.plan.level;
+    const n = Math.min(8, 4 + Math.floor(L / 2));
+    for (let i = 0; i < n; i++) {
+      const dasher = L >= 3 && Math.random() < 0.4;
+      const x = -TRACK_HALF + 0.6 + Math.random() * (TRACK_HALF * 2 - 1.2);
+      const z = -16 - Math.random() * 10;
+      const hp = Math.round((dasher ? 2 + Math.random() * 2 : 3 + Math.random() * 4) * this.plan.hpScale);
+      this.w.enemies.spawn(dasher ? 'dasher' : 'grunt', x, z, hp);
+    }
+  }
+
+  /** Each boss roar calls in two minions. */
+  private bossSummons(): void {
+    const b = this.boss;
+    if (!b) return;
+    const roaring = this.w.enemies.roaring(b);
+    if (roaring && !this.bossRoaring) {
+      const p = b.group.position;
+      for (const s of [-1, 1]) {
+        const x = Math.max(-TRACK_HALF + 0.6, Math.min(TRACK_HALF - 0.6, p.x + s * 2.6));
+        this.w.enemies.spawn('grunt', x, p.z + 2.5, Math.round(5 * this.plan.hpScale));
+      }
+      this.emit({ k: 'summon', x: p.x, z: p.z });
+    }
+    this.bossRoaring = roaring;
   }
 
   private fire(p: Player, dt: number): void {

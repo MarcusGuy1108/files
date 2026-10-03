@@ -21,12 +21,20 @@ export type Sfx =
   | 'win'
   | 'lose'
   | 'click'
-  | 'wipe';
+  | 'wipe'
+  | 'alarm'
+  | 'meteor'
+  | 'boom'
+  | 'summon';
 
 export type MusicMode = 'menu' | 'run' | 'boss';
 
 /** Minimum gap between repeats, so rapid events don't turn into noise. */
 const THROTTLE: Partial<Record<Sfx, number>> = { shoot: 0.07, hit: 0.045, gem: 0.04, kill: 0.03, block: 0.08 };
+
+/** 0.1 s of silence as a WAV data URI (used to unlock the iOS media channel). */
+const SILENT_WAV =
+  'data:audio/wav;base64,UklGRkQDAABXQVZFZm10IBAAAAABAAEAQB8AAEAfAAABAAgAZGF0YSADAACAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgICAgA==';
 
 const mtof = (m: number) => 440 * Math.pow(2, (m - 69) / 12);
 
@@ -102,9 +110,32 @@ export class AudioEngine {
   private step = 0;
   private nextTime = 0;
   private timer: number | null = null;
+  /** Scheduled kick times, so visuals can pulse in time with the music. */
+  private beats: number[] = [];
+  private silentEl: HTMLAudioElement | null = null;
 
-  /** Call from a user gesture: browsers only allow audio to start after one. */
+  /**
+   * Call from a user gesture (touchend / pointerup / click / keydown — a touch's pointerdown
+   * does not count on mobile): browsers only allow audio to start after one.
+   */
   unlock(): void {
+    // iOS: route Web Audio as media playback so the ring/silent switch doesn't mute it.
+    const nav = navigator as Navigator & { audioSession?: { type: string } };
+    if (nav.audioSession) {
+      try {
+        nav.audioSession.type = 'playback';
+      } catch {
+        /* older Safari */
+      }
+    } else if (!this.silentEl && /iP(hone|ad|od)/.test(navigator.userAgent)) {
+      // Older iOS: a looping silent <audio> element switches the page to the media channel.
+      const el = document.createElement('audio');
+      el.src = SILENT_WAV;
+      el.loop = true;
+      el.setAttribute('playsinline', '');
+      void el.play().catch(() => {});
+      this.silentEl = el;
+    }
     if (!this.ctx) {
       const Ctor = window.AudioContext ?? (window as unknown as { webkitAudioContext?: typeof AudioContext }).webkitAudioContext;
       if (!Ctor) return;
@@ -146,7 +177,29 @@ export class AudioEngine {
 
       if (this.pending) this.startMusic(this.pending);
     }
-    if (this.ctx.state === 'suspended') void this.ctx.resume();
+    const ctx = this.ctx;
+    // 'suspended' on first use, 'interrupted' on iOS after a call or app switch.
+    if (ctx.state !== 'running') void ctx.resume().catch(() => {});
+    // Some mobile browsers only truly start after a sound is played inside the gesture.
+    const buf = ctx.createBuffer(1, 1, 22050);
+    const src = ctx.createBufferSource();
+    src.buffer = buf;
+    src.connect(ctx.destination);
+    src.start(0);
+  }
+
+  get running(): boolean {
+    return this.ctx?.state === 'running';
+  }
+
+  /** 1 right on a beat, decaying towards 0 until the next. */
+  beat(): number {
+    const ctx = this.ctx;
+    if (!ctx || ctx.state !== 'running' || !this.musicOn || !this.mode) return -1;
+    const now = ctx.currentTime;
+    let last = -1;
+    for (const t of this.beats) if (t <= now && t > last) last = t;
+    return last < 0 ? 0 : Math.exp(-(now - last) * 7);
   }
 
   setMusicEnabled(on: boolean): void {
@@ -240,6 +293,21 @@ export class AudioEngine {
         this.tone('sawtooth', 420, 50, 0.6, 0.12 * vol, t, out, 1500);
         this.hiss(0.5, 0.12 * vol, 'lowpass', 1500, 150, t, out);
         break;
+      case 'alarm':
+        for (let i = 0; i < 3; i++) this.tone('square', 660, 880, 0.18, 0.08 * vol, t + i * 0.22, out, 2600);
+        break;
+      case 'meteor':
+        this.tone('sine', 1800, 300, 1.2, 0.05 * vol, t, out);
+        this.hiss(1.2, 0.04 * vol, 'bandpass', 3000, 600, t, out);
+        break;
+      case 'boom':
+        this.tone('sine', 120, 35, 0.5, 0.45 * vol, t, out);
+        this.hiss(0.6, 0.25 * vol, 'lowpass', 2500, 120, t, out);
+        break;
+      case 'summon':
+        this.tone('sawtooth', 90, 180, 0.5, 0.12 * vol, t, out, 900);
+        this.tone('square', 440, 220, 0.3, 0.05 * vol, t + 0.1, out, 1800);
+        break;
     }
   }
 
@@ -325,6 +393,10 @@ export class AudioEngine {
     const s = step % 16;
     const beat = 60 / song.bpm;
 
+    if (s % 4 === 0) {
+      this.beats.push(t);
+      if (this.beats.length > 8) this.beats.shift();
+    }
     if (song.drums) {
       if (s % 4 === 0) this.kick(t);
       if (s === 4 || s === 12) this.snare(t);

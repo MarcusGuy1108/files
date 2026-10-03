@@ -1,5 +1,6 @@
 import * as THREE from 'three';
 import { TextLabel, labelSprite } from '../render/Label';
+import { TRACK_HALF } from './Track';
 
 export type EnemyKind = 'grunt' | 'brute' | 'dasher' | 'bearer' | 'boss';
 export const ENEMY_KINDS: EnemyKind[] = ['grunt', 'brute', 'dasher', 'bearer', 'boss'];
@@ -12,14 +13,16 @@ interface KindSpec {
   /** Gem pickups dropped on death: `chance` of dropping `count`. */
   drop: { chance: number; count: number };
   labelW: number;
+  /** Strides per second of the walk cycle. */
+  stride: number;
 }
 
 export const ENEMY_SPECS: Record<EnemyKind, KindSpec> = {
-  grunt: { radius: 0.55, height: 1.35, speed: 2.5, color: 0xff3b4e, drop: { chance: 0.3, count: 1 }, labelW: 1.6 },
-  brute: { radius: 0.95, height: 2.2, speed: 1.8, color: 0xff7a1a, drop: { chance: 1, count: 2 }, labelW: 2.0 },
-  dasher: { radius: 0.45, height: 1.0, speed: 6.5, color: 0xb45cff, drop: { chance: 0.25, count: 1 }, labelW: 1.3 },
-  bearer: { radius: 0.85, height: 2.0, speed: 1.6, color: 0x4d7cff, drop: { chance: 1, count: 2 }, labelW: 1.8 },
-  boss: { radius: 2.0, height: 4.2, speed: 1.6, color: 0xff2b8a, drop: { chance: 0, count: 0 }, labelW: 3.2 },
+  grunt: { radius: 0.55, height: 1.35, speed: 2.5, color: 0xff3b4e, drop: { chance: 0.3, count: 1 }, labelW: 1.6, stride: 9 },
+  brute: { radius: 0.95, height: 2.2, speed: 1.8, color: 0xff7a1a, drop: { chance: 1, count: 2 }, labelW: 2.0, stride: 6 },
+  dasher: { radius: 0.45, height: 1.0, speed: 6.5, color: 0xb45cff, drop: { chance: 0.25, count: 1 }, labelW: 1.3, stride: 0 },
+  bearer: { radius: 0.85, height: 2.0, speed: 1.6, color: 0x4d7cff, drop: { chance: 1, count: 2 }, labelW: 1.8, stride: 5 },
+  boss: { radius: 2.0, height: 4.2, speed: 1.6, color: 0xff2b8a, drop: { chance: 0, count: 0 }, labelW: 3.2, stride: 3.2 },
 };
 
 /** Shield bearers carry a wall in front of them that soaks up bullets until it breaks. */
@@ -30,12 +33,24 @@ const DESPAWN_Z = 4;
 const FLASH_TIME = 0.07;
 /** Dashers steer towards the nearest squad at this sideways speed. */
 const DASHER_STEER = 2.4;
+/** Enemies that appear this close drop in from the sky instead of popping into view. */
+const DROP_IN_Z = -50;
+const DROP_TIME = 0.55;
+const KNOCKBACK = 0.025;
+/** Brutes wind up, then charge, once they get this close. */
+const BRUTE_TRIGGER_Z = -26;
+const WINDUP = 0.7;
+const CHARGE = 1.2;
+const CHARGE_MULT = 3.2;
+
+type Mode = 'walk' | 'windup' | 'charge' | 'spent';
 
 export interface Enemy {
   id: number;
   kind: EnemyKind;
   group: THREE.Group;
-  body: THREE.Object3D;
+  body: THREE.Group;
+  rig: Rig;
   mat: THREE.MeshLambertMaterial;
   label: TextLabel;
   hp: number;
@@ -46,6 +61,23 @@ export interface Enemy {
   flash: number;
   /** When false the enemy holds its ground (the boss before the arena). */
   walking: boolean;
+  // Animation and behaviour state
+  phase: number;
+  age: number;
+  drop: number;
+  mode: Mode;
+  modeT: number;
+  hopIn: number;
+  hopT: number;
+  lastX: number;
+}
+
+/** The moving parts of a body, for the walk cycle and gestures. */
+interface Rig {
+  legs: THREE.Object3D[];
+  arms: THREE.Object3D[];
+  head: THREE.Object3D | null;
+  spin: THREE.Object3D | null;
 }
 
 export class Enemies {
@@ -72,7 +104,16 @@ export class Enemies {
     e.shieldHp = shieldHp;
     e.flash = 0;
     e.walking = kind !== 'boss';
+    e.phase = Math.random() * Math.PI * 2;
+    e.age = 0;
+    e.drop = z > DROP_IN_Z && kind !== 'boss' ? DROP_TIME : 0;
+    e.mode = 'walk';
+    e.modeT = 0;
+    e.hopIn = 1.5 + Math.random() * 2.5;
+    e.hopT = 0;
+    e.lastX = x;
     e.group.position.set(x, 0, z);
+    e.group.scale.setScalar(1);
     e.group.visible = true;
     e.label.set(String(Math.ceil(hp)));
     if (e.shield) e.shield.visible = shieldHp > 0;
@@ -85,10 +126,11 @@ export class Enemies {
     return this.active.find((e) => e.id === id);
   }
 
-  /** Returns true when the hit killed the enemy. */
+  /** Returns true when the hit killed the enemy. Hits stagger enemies back a little. */
   damage(e: Enemy, amount: number): boolean {
     this.setHp(e, e.hp - amount);
     e.flash = FLASH_TIME;
+    if (e.kind !== 'boss' && e.mode !== 'charge') e.group.position.z -= KNOCKBACK;
     return e.hp <= 0;
   }
 
@@ -115,34 +157,137 @@ export class Enemies {
     return e.group.position.z + SHIELD.ahead;
   }
 
+  /** Is this boss mid-roar? (Sim uses the roar to time its summons.) */
+  roaring(e: Enemy): boolean {
+    return e.kind === 'boss' && e.mode === 'windup';
+  }
+
   /**
-   * Move everyone. `squadXs` are the squads' x positions, for dashers to home in on.
-   * The co-op guest passes `despawn: false` and lets snapshots decide who leaves.
+   * Move and animate everyone. `squadXs` are the squads' x positions, for homing and
+   * facing. The co-op guest passes `despawn: false` and lets snapshots decide who leaves.
    */
   update(dt: number, dz: number, time: number, squadXs: number[], despawn = true): void {
     for (let i = this.active.length - 1; i >= 0; i--) {
       const e = this.active[i];
       const p = e.group.position;
       const spec = ENEMY_SPECS[e.kind];
-      p.z += dz + (e.walking ? spec.speed * dt : 0);
-      if (e.kind === 'dasher' && p.z > -45 && squadXs.length) {
-        let tx = squadXs[0];
+      e.age += dt;
+      e.modeT += dt;
+
+      // Nearest squad, for homing and for turning to face it.
+      let tx = p.x;
+      if (squadXs.length) {
+        tx = squadXs[0];
         for (const x of squadXs) if (Math.abs(x - p.x) < Math.abs(tx - p.x)) tx = x;
+      }
+
+      this.think(e, dt);
+      const pace = e.mode === 'windup' ? 0 : e.mode === 'charge' ? CHARGE_MULT : 1;
+      const landed = e.drop <= 0;
+      p.z += dz + (e.walking && landed ? spec.speed * pace * dt : 0);
+
+      if (e.kind === 'dasher' && p.z > -45 && squadXs.length && landed) {
         const step = DASHER_STEER * dt;
         p.x += Math.max(-step, Math.min(step, tx - p.x));
+      } else if (e.kind === 'grunt' && e.walking && p.z > -60) {
+        // Grunts weave as they come, so they don't march in a straight line.
+        p.x += Math.cos(e.age * 1.7 + e.phase) * 0.9 * dt;
+        p.x = Math.max(-TRACK_HALF + 0.4, Math.min(TRACK_HALF - 0.4, p.x));
       }
+
       if (despawn && p.z > DESPAWN_Z) {
         this.release(e);
         continue;
       }
-      // Waddle, plus a quick flash and squash when hit.
-      e.flash = Math.max(0, e.flash - dt);
-      const hit = e.flash > 0 ? 1 : 0;
-      e.mat.emissiveIntensity = hit ? 2.5 : 1;
-      e.body.scale.set(1 + hit * 0.12, 1 - hit * 0.08, 1 + hit * 0.12);
-      const wobble = e.kind === 'dasher' ? 18 : 9;
-      e.body.rotation.z = e.walking ? Math.sin(time * wobble + p.x * 3) * 0.12 : 0;
+      this.animate(e, dt, time, tx);
     }
+  }
+
+  /** Per-kind behaviour: brute charges, grunt hops, boss roars. */
+  private think(e: Enemy, dt: number): void {
+    const z = e.group.position.z;
+    if (e.drop > 0) {
+      e.drop = Math.max(0, e.drop - dt);
+      return;
+    }
+    switch (e.kind) {
+      case 'brute':
+        if (e.mode === 'walk' && z > BRUTE_TRIGGER_Z) this.setMode(e, 'windup');
+        else if (e.mode === 'windup' && e.modeT > WINDUP) this.setMode(e, 'charge');
+        else if (e.mode === 'charge' && e.modeT > CHARGE) this.setMode(e, 'spent');
+        break;
+      case 'grunt':
+        if (e.hopT > 0) e.hopT = Math.max(0, e.hopT - dt);
+        else if (z > -35 && z < -5 && (e.hopIn -= dt) <= 0) {
+          e.hopT = 0.45;
+          e.hopIn = 2 + Math.random() * 3;
+        }
+        break;
+      case 'boss':
+        // A roar every few seconds once it is on the move.
+        if (e.walking && e.mode === 'walk' && e.modeT > 4.5) this.setMode(e, 'windup');
+        else if (e.mode === 'windup' && e.modeT > 0.8) this.setMode(e, 'walk');
+        break;
+    }
+  }
+
+  private setMode(e: Enemy, m: Mode): void {
+    e.mode = m;
+    e.modeT = 0;
+  }
+
+  private animate(e: Enemy, dt: number, time: number, tx: number): void {
+    const spec = ENEMY_SPECS[e.kind];
+    const { body, rig } = e;
+    const p = e.group.position;
+    const h = spec.height;
+
+    // Hit flash and squash.
+    e.flash = Math.max(0, e.flash - dt);
+    const hit = e.flash > 0 ? 1 : 0;
+    const windup = e.mode === 'windup';
+    const pulse = windup ? 0.5 + 0.5 * Math.sin(e.modeT * 30) : 0;
+    e.mat.emissiveIntensity = hit ? 2.5 : 1 + pulse * 2;
+
+    const moving = e.walking && e.drop <= 0 && !windup;
+    const cyc = e.age * spec.stride * (e.mode === 'charge' ? 1.8 : 1) + e.phase;
+    const swing = moving ? Math.sin(cyc) : 0;
+
+    // Legs and arms swing in opposition; arms go up for a wind-up or roar.
+    rig.legs.forEach((l, k) => (l.rotation.x = swing * 0.7 * (k ? -1 : 1)));
+    rig.arms.forEach((a, k) => {
+      if (windup) a.rotation.x = -2.5 + Math.sin(e.modeT * 18 + k) * 0.2;
+      else if (e.kind === 'bearer') a.rotation.x = -1.2; // holding the shield up
+      else a.rotation.x = -swing * 0.6 * (k ? -1 : 1);
+      a.rotation.z = windup ? (k ? -0.5 : 0.5) : 0;
+    });
+    if (rig.head) rig.head.rotation.x = windup ? -0.45 : Math.sin(cyc * 2) * 0.05;
+    if (rig.spin) rig.spin.rotation.y += dt * 9;
+
+    // Body: a step bob, a forward lean when charging, and turning to face its target.
+    let y = moving ? Math.abs(Math.sin(cyc)) * h * 0.06 : Math.sin(time * 2 + e.phase) * h * 0.01;
+    let lean = e.mode === 'charge' ? 0.35 : moving ? 0.08 : 0;
+    if (e.kind === 'dasher') {
+      y = 0.35 + Math.sin(e.age * 6 + e.phase) * 0.12;
+      const vx = (p.x - e.lastX) / Math.max(dt, 1e-4);
+      body.rotation.z = THREE.MathUtils.clamp(-vx * 0.12, -0.6, 0.6);
+      lean = 0.25;
+    } else {
+      body.rotation.z = moving ? Math.sin(cyc) * 0.06 : 0;
+    }
+    if (e.kind === 'grunt' && e.hopT > 0) y += Math.sin((1 - e.hopT / 0.45) * Math.PI) * 0.9;
+    body.position.y = y;
+    body.rotation.x = lean;
+    const face = Math.atan2(tx - p.x, Math.max(2, -p.z));
+    body.rotation.y += (THREE.MathUtils.clamp(face, -0.6, 0.6) - body.rotation.y) * Math.min(1, dt * 5);
+
+    const swell = e.kind === 'boss' && windup ? 1 + Math.sin(Math.min(1, e.modeT / 0.8) * Math.PI) * 0.1 : 1;
+    body.scale.set((1 + hit * 0.12) * swell, (1 - hit * 0.08) * swell, (1 + hit * 0.12) * swell);
+
+    // Dropping in from the sky.
+    const d = e.drop / DROP_TIME;
+    p.y = d > 0 ? 12 * d * d : 0;
+    e.lastX = p.x;
   }
 
   release(e: Enemy): void {
@@ -166,7 +311,7 @@ export class Enemies {
       emissive: new THREE.Color(spec.color).multiplyScalar(0.25),
       flatShading: true,
     });
-    const body = buildBody(kind, spec, mat);
+    const { body, rig } = buildBody(kind, spec, mat);
     group.add(body);
 
     const label = new TextLabel(160, 80, { color: '#ffffff' });
@@ -192,6 +337,7 @@ export class Enemies {
       kind,
       group,
       body,
+      rig,
       mat,
       label,
       hp: 0,
@@ -201,12 +347,20 @@ export class Enemies {
       shieldLabel,
       flash: 0,
       walking: true,
+      phase: 0,
+      age: 0,
+      drop: 0,
+      mode: 'walk',
+      modeT: 0,
+      hopIn: 0,
+      hopT: 0,
+      lastX: 0,
     };
   }
 }
 
 const eyeMat = new THREE.MeshBasicMaterial({ color: 0xfff26b });
-const darkMat = new THREE.MeshLambertMaterial({ color: 0x2a0a1e });
+const darkMat = new THREE.MeshLambertMaterial({ color: 0x2a0a1e, flatShading: true });
 
 function buildShield(): THREE.Group {
   const g = new THREE.Group();
@@ -231,13 +385,24 @@ function buildShield(): THREE.Group {
   return g;
 }
 
-function buildBody(kind: EnemyKind, spec: KindSpec, mat: THREE.Material): THREE.Group {
+/** A limb that swings from a pivot at its top. */
+function limb(w: number, len: number, mat: THREE.Material, x: number, y: number): THREE.Object3D {
+  const pivot = new THREE.Group();
+  pivot.position.set(x, y, 0);
+  const m = new THREE.Mesh(new THREE.BoxGeometry(w, len, w), mat);
+  m.position.y = -len / 2;
+  pivot.add(m);
+  return pivot;
+}
+
+function buildBody(kind: EnemyKind, spec: KindSpec, mat: THREE.Material): { body: THREE.Group; rig: Rig } {
   const g = new THREE.Group();
+  const rig: Rig = { legs: [], arms: [], head: null, spin: null };
   const r = spec.radius;
   const h = spec.height;
 
   if (kind === 'dasher') {
-    // Low, pointed and leaning forward: reads as "fast" at a glance.
+    // A hovering, pointed drone with a spinning ring: reads as "fast" at a glance.
     const hull = new THREE.Mesh(new THREE.ConeGeometry(r, h * 1.1, 5), mat);
     hull.rotation.x = Math.PI / 2.6;
     hull.position.y = h * 0.45;
@@ -246,44 +411,68 @@ function buildBody(kind: EnemyKind, spec: KindSpec, mat: THREE.Material): THREE.
       const eye = new THREE.Mesh(new THREE.BoxGeometry(r * 0.3, r * 0.14, 0.05), eyeMat);
       eye.position.set(s * r * 0.3, h * 0.62, r * 0.75);
       g.add(eye);
+      const fin = new THREE.Mesh(new THREE.BoxGeometry(r * 0.9, 0.05, r * 0.5), darkMat);
+      fin.position.set(s * r * 0.8, h * 0.4, -r * 0.2);
+      fin.rotation.z = s * 0.3;
+      g.add(fin);
     }
-    return g;
+    const ring = new THREE.Mesh(new THREE.TorusGeometry(r * 0.9, 0.05, 6, 20), eyeMat);
+    ring.rotation.x = Math.PI / 2;
+    ring.position.y = h * 0.15;
+    const spin = new THREE.Group();
+    spin.add(ring);
+    g.add(spin);
+    rig.spin = spin;
+    return { body: g, rig };
   }
 
-  // Chunky low-poly torso.
-  const torso = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.75, r, h * 0.75, 6), mat);
-  torso.position.y = h * 0.375;
+  const hip = h * 0.32;
+  // Legs
+  for (const s of [-1, 1]) {
+    const leg = limb(r * 0.32, hip, darkMat, s * r * 0.38, hip);
+    g.add(leg);
+    rig.legs.push(leg);
+  }
+  // Torso
+  const torso = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.7, r * 0.85, h * 0.45, 6), mat);
+  torso.position.y = hip + h * 0.22;
   g.add(torso);
+  // Arms
+  const shoulder = hip + h * 0.4;
+  for (const s of [-1, 1]) {
+    const arm = limb(r * 0.26, h * 0.36, mat, s * r * 0.95, shoulder);
+    g.add(arm);
+    rig.arms.push(arm);
+  }
 
-  const head = new THREE.Mesh(new THREE.IcosahedronGeometry(r * 0.62, 0), mat);
+  // Head with horns and glowing eyes facing the squad (+z).
+  const head = new THREE.Group();
   head.position.y = h * 0.82;
-  g.add(head);
-
+  const skull = new THREE.Mesh(new THREE.IcosahedronGeometry(r * 0.58, 0), mat);
+  head.add(skull);
   for (const s of [-1, 1]) {
     const horn = new THREE.Mesh(new THREE.ConeGeometry(r * 0.16, r * 0.6, 4), darkMat);
-    horn.position.set(s * r * 0.42, h * 0.98, 0);
+    horn.position.set(s * r * 0.42, h * 0.16, 0);
     horn.rotation.z = -s * 0.5;
-    g.add(horn);
-  }
-
-  // Glowing eyes facing the squad (+z).
-  for (const s of [-1, 1]) {
+    head.add(horn);
     const eye = new THREE.Mesh(new THREE.BoxGeometry(r * 0.22, r * 0.12, 0.05), eyeMat);
-    eye.position.set(s * r * 0.24, h * 0.85, r * 0.56);
-    g.add(eye);
+    eye.position.set(s * r * 0.24, h * 0.03, r * 0.52);
+    head.add(eye);
   }
+  if (kind === 'boss') {
+    const crown = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.5, r * 0.45, r * 0.3, 6, 1, true), eyeMat);
+    crown.position.y = h * 0.24;
+    head.add(crown);
+  }
+  g.add(head);
+  rig.head = head;
 
   if (kind === 'brute' || kind === 'boss' || kind === 'bearer') {
     for (const s of [-1, 1]) {
       const pad = new THREE.Mesh(new THREE.BoxGeometry(r * 0.5, r * 0.35, r * 0.7), darkMat);
-      pad.position.set(s * r * 0.85, h * 0.68, 0);
+      pad.position.set(s * r * 0.85, shoulder + r * 0.1, 0);
       g.add(pad);
     }
   }
-  if (kind === 'boss') {
-    const crown = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.5, r * 0.45, r * 0.3, 6, 1, true), eyeMat);
-    crown.position.y = h * 1.06;
-    g.add(crown);
-  }
-  return g;
+  return { body: g, rig };
 }

@@ -2,6 +2,7 @@ import type { EnemyKind } from './Enemies';
 import type { GateDef } from './Gates';
 import { POWER_KINDS, type PowerKind } from './Powerups';
 import { TRACK_HALF } from './Track';
+import type { LevelEventKind } from './events';
 
 export interface WaveEnemy {
   kind: EnemyKind;
@@ -15,7 +16,9 @@ export type LevelEvent =
   | { at: number; type: 'wave'; enemies: WaveEnemy[] }
   | { at: number; type: 'gates'; gates: GateDef[] }
   | { at: number; type: 'gems'; gems: { x: number; dz: number }[] }
-  | { at: number; type: 'power'; kind: PowerKind; x: number };
+  | { at: number; type: 'power'; kind: PowerKind; x: number }
+  /** A mid-level event that lasts `span` distance (0 = one-off). */
+  | { at: number; type: 'event'; kind: LevelEventKind; span: number };
 
 export interface LevelPlan {
   level: number;
@@ -26,6 +29,8 @@ export interface LevelPlan {
   bossHp: number;
   /** Gate points (one full volley = gun power) needed to raise a gate by one. */
   gateCost: number;
+  /** Enemy health multiplier for this level (events and boss summons use it). */
+  hpScale: number;
   /** Gems each player gets for beating the boss, and for clearing the level. */
   bossReward: number;
   clearBonus: number;
@@ -171,6 +176,16 @@ export function buildLevel(level: number, coop = false): LevelPlan {
     last = pick;
   }
 
+  // Mid-level events: a gentle gem rush on level 1, then one or two surprises per level.
+  const SPANS: Record<LevelEventKind, number> = { meteors: 75, ambush: 0, gemrush: 45 };
+  const pool: LevelEventKind[] = level === 1 ? ['gemrush'] : level === 2 ? ['ambush', 'gemrush'] : ['meteors', 'ambush', 'gemrush'];
+  const slots = level === 1 ? [0.55] : level < 4 ? [0.5] : [0.3, 0.65];
+  for (const f of slots) {
+    const kind = pool.splice(int(0, pool.length - 1), 1)[0];
+    events.push({ at: Math.round(length * f), type: 'event', kind, span: SPANS[kind] });
+  }
+  events.sort((a, b) => a.at - b.at);
+
   return {
     level,
     coop,
@@ -178,6 +193,7 @@ export function buildLevel(level: number, coop = false): LevelPlan {
     speed: Math.min(15, 11 + 0.3 * L),
     bossHp: Math.round(600 * (1 + 0.6 * L) * (coop ? 1.7 : 1)),
     gateCost: 1 + 0.08 * L,
+    hpScale,
     bossReward: 6 + 2 * L,
     clearBonus: 8 + 3 * L,
     events,

@@ -187,6 +187,7 @@ export class Replica {
     }
     w.gems.update(dz);
     w.fx.update(dt, dz);
+    w.hazards.update(dt, dz, time);
 
     const fighting = this.phase === 'run' || this.phase === 'arena';
     for (const p of w.players) {

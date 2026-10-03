@@ -27,7 +27,7 @@ export class Backdrop {
         uTime: { value: 0 },
         uZenith: { value: SKY.zenith },
         uMid: { value: SKY.mid },
-        uGlow: { value: SKY.glow },
+        uGlow: { value: SKY.glow.clone() },
         uHorizon: { value: SKY.horizon },
       },
       vertexShader: /* glsl */ `
@@ -83,6 +83,11 @@ export class Backdrop {
     scene.add(buildSun());
     scene.add(buildRidge(-232, 0x1a0733, 0x8a3bff, 0.6, 1.0, 11));
     scene.add(buildRidge(-205, 0x0c0219, 0xff2bd6, 0.9, 0.75, 29));
+  }
+
+  /** Tint the horizon glow (mood lighting). */
+  setGlow(c: THREE.Color): void {
+    (this.skyMat.uniforms.uGlow.value as THREE.Color).copy(c);
   }
 
   update(time: number): void {

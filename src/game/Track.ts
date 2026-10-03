@@ -8,17 +8,24 @@ const GRID_LENGTH = 220;
 const CELL = 2;
 const PILLAR_SPACING = 12;
 const PILLAR_COUNT = 14; // per side
+const ARCH_SPACING = 56;
+const ARCH_COUNT = 4;
+const ARCH_COLORS = [COLORS.pink, COLORS.cyan, COLORS.purple, COLORS.yellow];
 
 /** Scrolling floor grid plus roadside pillars that give a sense of speed. */
 export class Track {
   private gridMat: THREE.ShaderMaterial;
   private pillars: THREE.Mesh[] = [];
+  private pillarMats: THREE.MeshBasicMaterial[] = [];
+  private arches: { group: THREE.Group; mat: THREE.MeshBasicMaterial; hue: number }[] = [];
+  private lineColor = new THREE.Color(COLORS.pink);
 
   constructor(parent: THREE.Object3D) {
     this.gridMat = new THREE.ShaderMaterial({
       fog: false,
       uniforms: {
         uOffset: { value: 0 },
+        uPulse: { value: 0 },
         uCell: { value: CELL },
         uEdgeX: { value: TRACK_HALF + 0.25 },
         uRoad: { value: new THREE.Color(0x140a2a) },
@@ -36,6 +43,7 @@ export class Track {
         }`,
       fragmentShader: /* glsl */ `
         uniform float uOffset;
+        uniform float uPulse;
         uniform float uCell;
         uniform float uEdgeX;
         uniform vec3 uRoad;
@@ -62,8 +70,9 @@ export class Track {
           float dist = -vPos.z;
           float reach = mix(70.0, 120.0, onRoad);
           line *= (1.0 - smoothstep(20.0, reach, dist)) * mix(0.55, 0.35, onRoad);
-          vec3 col = mix(uOff, uRoad, onRoad) + uLine * line;
-          col = mix(col, uEdge * 1.2, edge * (1.0 - smoothstep(60.0, 170.0, dist)));
+          // Lines flare on each beat of the music.
+          vec3 col = mix(uOff, uRoad, onRoad) + uLine * line * (1.0 + uPulse * 1.4);
+          col = mix(col, uEdge * (1.2 + uPulse * 0.8), edge * (1.0 - smoothstep(60.0, 170.0, dist)));
           float fade = smoothstep(30.0, 175.0, dist);
           gl_FragColor = vec4(mix(col, uHorizon, fade), 1.0);
           #include <colorspace_fragment>
@@ -79,6 +88,7 @@ export class Track {
     pillarGeo.translate(0, 1.75, 0);
     const pinkMat = new THREE.MeshBasicMaterial({ color: COLORS.pink });
     const cyanMat = new THREE.MeshBasicMaterial({ color: COLORS.cyan });
+    this.pillarMats = [pinkMat, cyanMat];
     for (let i = 0; i < PILLAR_COUNT; i++) {
       for (const side of [-1, 1]) {
         const m = new THREE.Mesh(pillarGeo, i % 2 === 0 ? pinkMat : cyanMat);
@@ -87,6 +97,40 @@ export class Track {
         this.pillars.push(m);
       }
     }
+    this.buildArches(parent);
+  }
+
+  /** Neon arches over the road that you run under. */
+  private buildArches(parent: THREE.Object3D): void {
+    const span = (TRACK_HALF + 1.3) * 2;
+    const postGeo = new THREE.BoxGeometry(0.2, 5.6, 0.2);
+    postGeo.translate(0, 2.8, 0);
+    const beamGeo = new THREE.BoxGeometry(span + 0.2, 0.2, 0.2);
+    for (let i = 0; i < ARCH_COUNT; i++) {
+      const mat = new THREE.MeshBasicMaterial({ color: ARCH_COLORS[i % ARCH_COLORS.length] });
+      const g = new THREE.Group();
+      for (const s of [-1, 1]) {
+        const post = new THREE.Mesh(postGeo, mat);
+        post.position.x = (s * span) / 2;
+        g.add(post);
+      }
+      const beam = new THREE.Mesh(beamGeo, mat);
+      beam.position.y = 5.6;
+      g.add(beam);
+      g.position.z = -30 - i * ARCH_SPACING;
+      parent.add(g);
+      this.arches.push({ group: g, mat, hue: i });
+    }
+  }
+
+  /** Beat pulse (0..1) and the mood colour for the floor lines. */
+  setPulse(pulse: number, mood: THREE.Color, moodMix: number): void {
+    this.gridMat.uniforms.uPulse.value = pulse;
+    (this.gridMat.uniforms.uLine.value as THREE.Color).copy(this.lineColor).lerp(mood, moodMix * 0.9);
+    const k = 0.75 + pulse * 0.6;
+    this.pillarMats[0].color.setHex(COLORS.pink).multiplyScalar(k);
+    this.pillarMats[1].color.setHex(COLORS.cyan).multiplyScalar(k);
+    for (const a of this.arches) a.mat.color.setHex(ARCH_COLORS[a.hue % ARCH_COLORS.length]).multiplyScalar(0.7 + pulse * 0.8);
   }
 
   update(dz: number): void {
@@ -96,6 +140,13 @@ export class Track {
     for (const p of this.pillars) {
       p.position.z += dz;
       if (p.position.z > 16) p.position.z -= wrap;
+    }
+    for (const a of this.arches) {
+      a.group.position.z += dz;
+      if (a.group.position.z > 14) {
+        a.group.position.z -= ARCH_SPACING * ARCH_COUNT;
+        a.hue++; // a new colour each time it comes round
+      }
     }
   }
 }

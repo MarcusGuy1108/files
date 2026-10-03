@@ -7,6 +7,7 @@ import { Gates } from './Gates';
 import { Gems } from './Gems';
 import { Powerups, type PowerKind } from './Powerups';
 import { Effects } from './Effects';
+import { Hazards } from './Hazards';
 import type { PlayerStats } from './Progress';
 
 /** One squad and the numbers that drive it. Index 0 is the host (or solo), 1 the guest. */
@@ -36,6 +37,7 @@ export class World {
   readonly powerups: Powerups;
   readonly bullets: Bullets;
   readonly fx: Effects;
+  readonly hazards: Hazards;
   readonly players: Player[];
 
   constructor(scene: THREE.Scene) {
@@ -48,6 +50,7 @@ export class World {
     const squads = [new Squad(this.root, LOOK_SELF), new Squad(this.root, LOOK_PARTNER)];
     this.bullets = new Bullets(this.root);
     this.fx = new Effects(this.root);
+    this.hazards = new Hazards(this.root);
     const stats = { start: 5, power: 1, rate: 3 };
     this.players = squads.map((squad, idx) => ({
       idx,
@@ -78,6 +81,7 @@ export class World {
     this.powerups.reset();
     this.bullets.clear();
     this.fx.clear();
+    this.hazards.clear();
   }
 
   sync(time: number): void {

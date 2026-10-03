@@ -13,7 +13,14 @@ import { GATE_BAD, GATE_GOOD } from './Gates';
 import { GEM_COLOR } from './Gems';
 import { POWER_SPECS } from './Powerups';
 import { buildLevel } from './Level';
-import type { GameEvent } from './events';
+import type { GameEvent, LevelEventKind } from './events';
+
+/** How each mid-level event is announced and lit. */
+const LEVEL_EVENT_INFO: Record<LevelEventKind, { title: string; sub: string; css: string; color: number; seconds: number }> = {
+  meteors: { title: 'METEOR SHOWER', sub: 'Keep out of the red circles', css: '#ff3a2a', color: 0xff2a10, seconds: 7 },
+  ambush: { title: 'AMBUSH!', sub: 'Enemies dropping in', css: '#ff7a1a', color: 0xff6a10, seconds: 3.5 },
+  gemrush: { title: 'GEM RUSH', sub: 'Grab them all', css: '#3dffa8', color: 0x22ff88, seconds: 4.5 },
+};
 import { detectVia, makeCode, normalizeCode, openChannel, NetError, type Channel } from '../net/Channel';
 import { encodeEvent, encodeSnap, type GuestMsg, type HostMsg } from '../net/protocol';
 
@@ -72,7 +79,11 @@ export class Game {
     this.w = new World(this.gs.scene);
     this.sim = new Sim(this.w, (e) => this.onSimEvent(e));
     this.replica = new Replica(this.w, 1, (e) => this.onEvent(e));
-    this.sim.onVolley = this.replica.onVolley = (p) => p === this.myIdx && this.audio.play('shoot');
+    this.sim.onVolley = this.replica.onVolley = (p) => {
+      if (p !== this.myIdx) return;
+      this.audio.play('shoot');
+      this.gs.fireFlash(this.me.squad.x);
+    };
 
     this.ui = new UI({
       play: () => this.startRun(),
@@ -94,9 +105,13 @@ export class Game {
     this.audio.setMusicEnabled(this.save.music);
     this.audio.setSfxEnabled(this.save.sfx);
     // Browsers only start audio after a user gesture.
+    // On phones only touchend / pointerup / click count as a gesture that may start audio;
+    // pointerdown from a touch does not. Retry on every one: iOS re-suspends audio after
+    // calls and app switches.
     const unlock = () => this.audio.unlock();
-    window.addEventListener('pointerdown', unlock, { capture: true });
-    window.addEventListener('keydown', unlock, { capture: true });
+    for (const ev of ['touchend', 'pointerup', 'click', 'keydown']) {
+      window.addEventListener(ev, unlock, { capture: true, passive: true });
+    }
     document.getElementById('ui')!.addEventListener('click', (e) => {
       if ((e.target as HTMLElement).closest('button')) this.audio.play('click');
     });
@@ -126,6 +141,8 @@ export class Game {
   // ---------- Menus ----------
 
   private toMenu(): void {
+    this.gs.setMood(null);
+    this.ui.hideBanner();
     this.leaveCoop();
     persist(this.save);
     this.w.clear();
@@ -260,6 +277,8 @@ export class Game {
   }
 
   private beginRunUi(): void {
+    this.gs.setMood(null);
+    this.ui.hideBanner();
     this.runGems = 0;
     this.shake = 0;
     this.ui.clearPops();
@@ -273,6 +292,7 @@ export class Game {
   private finish(won: boolean, progress: number): void {
     if (won && this.mode !== 'guest') this.save.level = this.level + 1;
     persist(this.save);
+    if (!won) this.gs.setMood(null);
     this.audio.play(won ? 'win' : 'lose');
     this.audio.music('menu');
     this.ui.setMenu(this.save);
@@ -298,6 +318,7 @@ export class Game {
         const spec = ENEMY_SPECS[e.kind];
         const big = e.kind === 'brute' || e.kind === 'bearer';
         fx.burst(e.x, spec.height * 0.5, e.z, spec.color, big ? 20 : 14, big ? 7 : 6);
+        this.gs.flash(e.x, 1.2, e.z, spec.color, big ? 40 : 14);
         if (e.kind !== 'boss') this.audio.play(big ? 'bigkill' : 'kill');
         break;
       }
@@ -306,6 +327,7 @@ export class Game {
         const good = e.v > 0;
         this.popAt(good ? `+${e.v}` : `−${-e.v}`, sq.x, 1.8, 0, good ? 'good' : 'bad');
         fx.burst(sq.x, 1, 0, good ? GATE_GOOD : GATE_BAD, 16, 6);
+        this.gs.flash(sq.x, 2, -0.5, good ? GATE_GOOD : GATE_BAD, 35);
         this.audio.play(good ? 'gateGood' : 'gateBad', mine ? 1 : 0.5);
         if (mine && !good) this.shake = 0.25;
         break;
@@ -334,6 +356,7 @@ export class Game {
         this.popAt(POWER_SPECS[e.kind].name, sq.x, 2.4, 0, mine ? 'good' : 'gem');
         fx.burst(sq.x, 1, 0, POWER_SPECS[e.kind].color, 18, 6);
         this.audio.play('power', mine ? 1 : 0.5);
+        if (mine) this.gs.setMood(POWER_SPECS[e.kind].color, 1.5);
         break;
       }
       case 'shieldbreak':
@@ -342,15 +365,51 @@ export class Game {
         break;
       case 'boss':
         this.ui.setBoss(1);
+        this.ui.banner('BOSS INCOMING', 'Bring it down before it reaches you', '#ff2b6a');
+        this.gs.setMood(0xff0040, 600);
         this.audio.play('boss');
         this.audio.music('boss');
         break;
       case 'arena':
+        this.ui.banner('FIGHT!', '', '#ff2b6a');
+        break;
+      case 'event': {
+        const ev = LEVEL_EVENT_INFO[e.kind];
+        this.ui.banner(ev.title, ev.sub, ev.css);
+        this.gs.setMood(ev.color, ev.seconds);
+        this.audio.play(e.kind === 'gemrush' ? 'power' : 'alarm');
+        break;
+      }
+      case 'meteor':
+        // The host spawned its own; the guest draws one from the event.
+        if (this.mode === 'guest') this.w.hazards.spawn(e.x, e.z, e.t);
+        this.audio.play('meteor', 0.7);
+        break;
+      case 'boom': {
+        fx.burst(e.x, 0.5, e.z, 0xff7a1a, 26, 9, 0.2);
+        fx.burst(e.x, 0.5, e.z, 0xffd23f, 12, 6);
+        this.gs.flash(e.x, 1.5, e.z, 0xff6a1a, 60);
+        this.audio.play('boom', e.p === this.myIdx || e.p < 0 ? 1 : 0.6);
+        if (e.p >= 0) {
+          const sq = squadOf(e.p);
+          if (e.loss > 0) this.popAt(`−${e.loss}`, sq.x, 1.8, 0, 'bad');
+          else this.audio.play('block');
+          if (e.p === this.myIdx) this.shake = 0.45;
+        }
+        break;
+      }
+      case 'summon':
+        fx.burst(e.x, 3, e.z, 0xb45cff, 30, 8);
+        this.gs.flash(e.x, 3, e.z, 0xb45cff, 50);
+        this.audio.play('summon');
+        this.shake = Math.max(this.shake, 0.2);
         break;
       case 'bossdown':
         fx.burst(e.x, 2, e.z, ENEMY_SPECS.boss.color, 70, 12, 0.22);
         fx.burst(e.x, 2, e.z, 0xffd23f, 30, 9);
         this.ui.setBoss(0);
+        this.gs.flash(e.x, 3, e.z, 0xffd23f, 90);
+        this.gs.setMood(0xffd23f, 3);
         this.audio.play('bossdown');
         this.shake = 0.6;
         break;
@@ -568,6 +627,12 @@ export class Game {
 
     this.w.sync(this.time);
     this.updateCamera(dt);
+    // Lights: decay flashes, ease the mood colour, pulse the neon to the music's beat
+    // (or to a steady 112 bpm clock when music is off).
+    this.gs.updateLights(dt);
+    let pulse = this.audio.beat();
+    if (pulse < 0) pulse = 0.6 * Math.exp(-(((now / 1000) * 112) / 60 % 1) * 7);
+    this.w.track.setPulse(pulse, this.gs.mood, this.gs.moodMix);
     this.gs.backdrop.update(now / 1000);
     this.gs.render();
   };

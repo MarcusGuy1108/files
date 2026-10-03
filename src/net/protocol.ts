@@ -2,7 +2,7 @@ import { ENEMY_KINDS } from '../game/Enemies';
 import { POWER_KINDS } from '../game/Powerups';
 import { PHASES, type Sim } from '../game/Sim';
 import type { World } from '../game/World';
-import type { GameEvent } from '../game/events';
+import { LEVEL_EVENT_KINDS, type GameEvent } from '../game/events';
 
 /**
  * What the host and guest send each other, ~20 times a second. Snapshots are flat
@@ -127,6 +127,14 @@ export function encodeEvent(e: GameEvent): (number | string)[] {
       return ['w', e.p];
     case 'reward':
       return ['r', e.p, e.n];
+    case 'event':
+      return ['E', LEVEL_EVENT_KINDS.indexOf(e.kind)];
+    case 'meteor':
+      return ['M', r2(e.x), r2(e.z), r2(e.t)];
+    case 'boom':
+      return ['X', r2(e.x), r2(e.z), e.p, e.loss];
+    case 'summon':
+      return ['S', r2(e.x), r2(e.z)];
   }
 }
 
@@ -157,6 +165,14 @@ export function decodeEvent(a: (number | string)[]): GameEvent | null {
       return { k: 'wipe', p: n(1) };
     case 'r':
       return { k: 'reward', p: n(1), n: n(2) };
+    case 'E':
+      return { k: 'event', kind: LEVEL_EVENT_KINDS[n(1)] ?? 'ambush' };
+    case 'M':
+      return { k: 'meteor', x: n(1), z: n(2), t: n(3) };
+    case 'X':
+      return { k: 'boom', x: n(1), z: n(2), p: n(3), loss: n(4) };
+    case 'S':
+      return { k: 'summon', x: n(1), z: n(2) };
   }
   return null;
 }

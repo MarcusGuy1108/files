@@ -30,6 +30,15 @@ export class GameScene {
   readonly scene = new THREE.Scene();
   readonly camera: THREE.PerspectiveCamera;
   readonly backdrop: Backdrop;
+  private hemi: THREE.HemisphereLight;
+  private muzzle: THREE.PointLight;
+  private flashes: THREE.PointLight[] = [];
+  private flashIdx = 0;
+  private moodTarget = new THREE.Color(SKY.glow);
+  private moodTimer = 0;
+  readonly mood = new THREE.Color(SKY.glow);
+  /** 0 normally, easing to 1 while a mood colour is active. */
+  moodMix = 0;
 
   private composer: EffectComposer;
   private bloomPass: UnrealBloomPass;
@@ -48,7 +57,16 @@ export class GameScene {
     this.scene.fog = new THREE.Fog(COLORS.horizon, 60, 150);
 
     // Solid, lit models read far better against the neon floor than outlines alone.
-    this.scene.add(new THREE.HemisphereLight(0xd9ccff, 0x2a1040, 1.6));
+    this.hemi = new THREE.HemisphereLight(0xd9ccff, 0x2a1040, 1.6);
+    this.scene.add(this.hemi);
+    // A fixed set of point lights (intensity 0 when idle) so shaders never recompile.
+    this.muzzle = new THREE.PointLight(0xffd23f, 0, 9, 1.6);
+    this.scene.add(this.muzzle);
+    for (let i = 0; i < 2; i++) {
+      const l = new THREE.PointLight(0xffffff, 0, 14, 1.6);
+      this.flashes.push(l);
+      this.scene.add(l);
+    }
     const sun = new THREE.DirectionalLight(0xffffff, 2.2);
     sun.position.set(3, 10, 8);
     this.scene.add(sun);
@@ -84,6 +102,38 @@ export class GameScene {
     this.renderer.setSize(w, h, false);
     this.composer.setPixelRatio(this.pixelRatio);
     this.composer.setSize(w, h);
+  }
+
+  /** Muzzle flash at the squad. */
+  fireFlash(x: number): void {
+    this.muzzle.position.set(x, 1.2, -0.8);
+    this.muzzle.intensity = 9;
+  }
+
+  /** A short coloured burst of light, e.g. an explosion. */
+  flash(x: number, y: number, z: number, color: number, intensity = 30): void {
+    const l = this.flashes[this.flashIdx++ % this.flashes.length];
+    l.position.set(x, y, z);
+    l.color.setHex(color);
+    l.intensity = intensity;
+  }
+
+  /** Shift the scene's mood colour for a while (null: back to the default). */
+  setMood(color: number | null, seconds = 0): void {
+    this.moodTarget.set(color ?? SKY.glow);
+    this.moodTimer = color === null ? 0 : seconds;
+  }
+
+  /** Per frame: decay lights, ease the mood colour. */
+  updateLights(dt: number): void {
+    this.muzzle.intensity *= Math.exp(-dt * 18);
+    for (const l of this.flashes) l.intensity *= Math.exp(-dt * 7);
+    if (this.moodTimer > 0 && (this.moodTimer -= dt) <= 0) this.moodTarget.copy(SKY.glow);
+    this.mood.lerp(this.moodTarget, Math.min(1, dt * 2.5));
+    this.moodMix += ((this.moodTimer > 0 ? 1 : 0) - this.moodMix) * Math.min(1, dt * 2.5);
+    this.backdrop.setGlow(this.mood);
+    // Ambient light takes a little of the mood colour too.
+    this.hemi.color.setRGB(0.85, 0.8, 1).lerp(this.mood, 0.25);
   }
 
   render(): void {
