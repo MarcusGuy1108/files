@@ -5,6 +5,8 @@ const TAP_MAX_MS = 300;
 
 const LEFT = new Set(['ArrowLeft', 'KeyA']);
 const RIGHT = new Set(['ArrowRight', 'KeyD']);
+const UP = new Set(['ArrowUp', 'KeyW']);
+const DOWN = new Set(['ArrowDown', 'KeyS']);
 
 /**
  * Steering from a drag anywhere on screen (touch or mouse) or held arrow / A-D keys,
@@ -13,6 +15,8 @@ const RIGHT = new Set(['ArrowRight', 'KeyD']);
 export class Input {
   private pointerId: number | null = null;
   private lastX = 0;
+  private lastY = 0;
+  private dragPy = 0;
   private moved = 0;
   private startTime = 0;
   private dragPx = 0;
@@ -36,6 +40,23 @@ export class Input {
     return d;
   }
 
+  /** Vertical drag in CSS pixels since the last call (positive = down the screen). */
+  consumeDragY(): number {
+    const d = this.dragPy;
+    this.dragPy = 0;
+    return d;
+  }
+
+  /** -1 (forward / up) .. 1 (back / down) from held keys. */
+  get keyAxisY(): number {
+    let a = 0;
+    for (const c of this.held) {
+      if (UP.has(c)) a -= 1;
+      if (DOWN.has(c)) a += 1;
+    }
+    return Math.max(-1, Math.min(1, a));
+  }
+
   /** -1 (left) .. 1 (right) from held keys. */
   get keyAxis(): number {
     let a = 0;
@@ -47,7 +68,7 @@ export class Input {
   }
 
   private onKeyDown = (e: KeyboardEvent) => {
-    if (LEFT.has(e.code) || RIGHT.has(e.code)) {
+    if (LEFT.has(e.code) || RIGHT.has(e.code) || UP.has(e.code) || DOWN.has(e.code)) {
       e.preventDefault();
       this.held.add(e.code);
       return;
@@ -68,6 +89,7 @@ export class Input {
     if (e.pointerType === 'mouse' && e.button !== 0) return;
     this.pointerId = e.pointerId;
     this.lastX = e.clientX;
+    this.lastY = e.clientY;
     this.moved = 0;
     this.startTime = performance.now();
   };
@@ -75,9 +97,12 @@ export class Input {
   private onPointerMove = (e: PointerEvent) => {
     if (e.pointerId !== this.pointerId) return;
     const dx = e.clientX - this.lastX;
+    const dy = e.clientY - this.lastY;
     this.lastX = e.clientX;
+    this.lastY = e.clientY;
     this.dragPx += dx;
-    this.moved += Math.abs(dx);
+    this.dragPy += dy;
+    this.moved += Math.abs(dx) + Math.abs(dy);
   };
 
   private onPointerUp = (e: PointerEvent) => {

@@ -112,18 +112,24 @@ export function buildLevel(level: number, coop = false): LevelPlan {
     const roll = rnd();
     const plus = () => Math.max(1, Math.round(range(3, 9) * gateScale));
     const minus = () => -Math.max(1, Math.round(range(2, 8) * gateScale));
+    // From level 2 some losses are percentages, which hurt big squads as much as small ones.
+    const pct = () => (level >= 2 && rnd() < Math.min(0.45, 0.2 + 0.03 * L) ? Math.round(range(0.55, 0.8) * 100) / 100 : 0);
     let defs: GateDef[];
     if (!first && level > 2 && roll < 0.2) {
       // A full-width negative gate: shoot it up before you reach it.
-      defs = [{ x0: -TRACK_HALF, x1: TRACK_HALF, value: -Math.round(range(3, 6) * gateScale) }];
+      const m = pct();
+      defs = [{ x0: -TRACK_HALF, x1: TRACK_HALF, value: m ? 0 : -Math.round(range(3, 6) * gateScale), mul: m }];
     } else {
       const both = roll > 0.85;
       const a = plus();
       const b = both ? Math.max(1, Math.round(a * range(0.3, 0.7))) : minus();
+      const bm = both ? 0 : pct();
       const goodLeft = rnd() < 0.5;
+      const good = { value: a, mul: 0 };
+      const bad = { value: bm ? 0 : b, mul: bm };
       defs = [
-        { x0: -TRACK_HALF, x1: -0.08, value: goodLeft ? a : b },
-        { x0: 0.08, x1: TRACK_HALF, value: goodLeft ? b : a },
+        { x0: -TRACK_HALF, x1: -0.08, ...(goodLeft ? good : bad) },
+        { x0: 0.08, x1: TRACK_HALF, ...(goodLeft ? bad : good) },
       ];
     }
     events.push({ at, type: 'gates', gates: defs });
@@ -146,11 +152,15 @@ export function buildLevel(level: number, coop = false): LevelPlan {
   };
 
   // Something to shoot straight away, then a gate to show how they work.
-  wave(22, 3, true);
-  gems(36, 3);
-  gates(55, true);
+  // A gentle opener far enough out that a fresh squad has time to shoot it down.
+  const openerAt = events.length;
+  wave(42, 3, true);
+  const opener = events[openerAt];
+  if (opener.type === 'wave') for (const e of opener.enemies) e.hp = Math.max(1, Math.round(e.hp * 0.6));
+  gems(56, 3);
+  gates(75, true);
 
-  let pos = 85;
+  let pos = 105;
   let nextPower = 100;
   // Obstacles: a row of barrels, tyres, crates or a concrete barrier you shoot through or dodge.
   const obstacles = (at: number) => {

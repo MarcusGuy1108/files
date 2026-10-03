@@ -18,6 +18,8 @@ export interface HostMsg {
   /** Increments every time the host starts a level, so the guest knows to reset. */
   run: number;
   won?: 0 | 1;
+  /** Host's display name. */
+  n?: string;
   snap?: Snap;
 }
 
@@ -25,6 +27,9 @@ export interface GuestMsg {
   r: 'g';
   /** Where the guest wants its squad. */
   x: number;
+  z?: number;
+  /** Guest's display name. */
+  n?: string;
   /** The guest's own upgrades: [start count, power, rate]. */
   st: [number, number, number];
 }
@@ -34,7 +39,7 @@ export interface Snap {
   d: number;
   ph: number;
   sp: number;
-  /** Per player: [x, count, rapid, damage, shield, wiped, rate]. */
+  /** Per player: [x, count, rapid, damage, shield, wiped, rate, z]. */
   p: number[][];
   /** Enemies, 7 numbers each: id, kind, x, z, hp, shield hp, walking. */
   e: number[];
@@ -66,6 +71,7 @@ export function encodeSnap(sim: Sim, w: World, recent: (number | string)[][]): S
       r2(p.pw.shield),
       p.wiped ? 1 : 0,
       r2(p.stats.rate),
+      r2(p.squad.z),
     ]),
     e: [],
     g: [],
@@ -81,7 +87,7 @@ export function encodeSnap(sim: Sim, w: World, recent: (number | string)[][]): S
     snap.e.push(e.id, ENEMY_KINDS.indexOf(e.kind), r2(p.x), r2(p.z), Math.ceil(e.hp), Math.ceil(e.shieldHp), e.walking ? 1 : 0);
   }
   for (const pair of w.gates.pairs) {
-    for (const g of pair.gates) snap.g.push(pair.id, r2(g.x0), r2(g.x1), r2(pair.z), g.value, g.mul);
+    for (const g of pair.gates) snap.g.push(pair.id, r2(g.x0), r2(g.x1), r2(pair.z), g.value, r2(g.mul));
   }
   for (let i = 0; i < w.gems.n; i++) snap.m.push(r2(w.gems.x[i]), r2(w.gems.z[i]));
   for (const pu of w.powerups.active) {

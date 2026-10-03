@@ -3,7 +3,7 @@ import { GameScene } from '../render/Scene';
 import { Input, type Action } from '../input/Input';
 import { UI } from '../ui/UI';
 import { AudioEngine } from '../audio/Audio';
-import { loadSave, persist, statsOf, upgradeCost, UPGRADES, type PlayerStats, type UpgradeId } from './Progress';
+import { cleanName, loadSave, persist, statsOf, upgradeCost, UPGRADES, type PlayerStats, type UpgradeId } from './Progress';
 import { TRACK_HALF } from './Track';
 import { World } from './World';
 import { Sim } from './Sim';
@@ -71,6 +71,7 @@ export class Game {
   private eventSeq = 0;
   private recent: { at: number; a: (number | string)[] }[] = [];
   private guestMsg: GuestMsg | null = null;
+  private hostName = '';
   private shopReturn: 'menu' | 'result' = 'menu';
 
   private acc = 0;
@@ -106,7 +107,14 @@ export class Game {
       toggleSfx: () => this.toggle('sfx'),
       // The tap that dismisses the splash also unlocks audio, so the menu music starts here.
       splashDone: () => this.audio.play('click'),
+      setName: (name) => {
+        this.save.name = cleanName(name);
+        this.ui.setNameField(this.save.name);
+        persist(this.save);
+        this.applyNames();
+      },
     });
+    this.ui.setNameField(this.save.name);
     this.input = new Input((a) => this.onAction(a));
 
     this.audio.setMusicEnabled(this.save.music);
@@ -303,6 +311,7 @@ export class Game {
     this.ui.clearPops();
     this.ui.startRun(this.level);
     this.ui.setGems(this.save.gems);
+    this.applyNames();
     this.setState('playing');
     this.ui.show('playing');
     this.audio.music('run');
@@ -344,8 +353,8 @@ export class Game {
       case 'gate': {
         const sq = squadOf(e.p);
         const good = e.v > 0;
-        this.popAt(good ? `+${e.v}` : `−${-e.v}`, sq.x, 1.8, 0, good ? 'good' : 'bad');
-        fx.burst(sq.x, 1, 0, good ? GATE_GOOD : GATE_BAD, 16, 6);
+        this.popAt(good ? `+${e.v}` : `−${-e.v}`, sq.x, 1.8, sq.z, good ? 'good' : 'bad');
+        fx.burst(sq.x, 1, sq.z, good ? GATE_GOOD : GATE_BAD, 16, 6);
         this.gs.flash(sq.x, 2, -0.5, good ? GATE_GOOD : GATE_BAD, 35);
         this.audio.play(good ? 'gateGood' : 'gateBad', mine ? 1 : 0.5);
         if (mine && !good) this.shake = 0.25;
@@ -353,7 +362,7 @@ export class Game {
       }
       case 'hurt': {
         const sq = squadOf(e.p);
-        this.popAt(`−${e.loss}`, sq.x, 1.8, 0, 'bad');
+        this.popAt(`−${e.loss}`, sq.x, 1.8, sq.z, 'bad');
         fx.burst(e.x, 0.8, e.z, ENEMY_SPECS[e.kind].color, 12, 6);
         this.audio.play('hurt', mine ? 1 : 0.4);
         if (mine) this.shake = 0.35;
@@ -372,8 +381,8 @@ export class Game {
         break;
       case 'power': {
         const sq = squadOf(e.p);
-        this.popAt(POWER_SPECS[e.kind].name, sq.x, 2.4, 0, mine ? 'good' : 'gem');
-        fx.burst(sq.x, 1, 0, POWER_SPECS[e.kind].color, 18, 6);
+        this.popAt(POWER_SPECS[e.kind].name, sq.x, 2.4, sq.z, mine ? 'good' : 'gem');
+        fx.burst(sq.x, 1, sq.z, POWER_SPECS[e.kind].color, 18, 6);
         this.audio.play('power', mine ? 1 : 0.5);
         if (mine) this.gs.setMood(POWER_SPECS[e.kind].color, 1.5);
         break;
@@ -412,7 +421,7 @@ export class Game {
         this.audio.play('boom', e.p === this.myIdx || e.p < 0 ? 1 : 0.6);
         if (e.p >= 0) {
           const sq = squadOf(e.p);
-          if (e.loss > 0) this.popAt(`−${e.loss}`, sq.x, 1.8, 0, 'bad');
+          if (e.loss > 0) this.popAt(`−${e.loss}`, sq.x, 1.8, sq.z, 'bad');
           else this.audio.play('block');
           if (e.p === this.myIdx) this.shake = 0.45;
         }
@@ -435,7 +444,7 @@ export class Game {
         break;
       case 'wipe': {
         const sq = squadOf(e.p);
-        fx.burst(sq.x, 0.6, 0, mine ? 0x29f0ff : 0xc58bff, 30, 8);
+        fx.burst(sq.x, 0.6, sq.z, mine ? 0x29f0ff : 0xc58bff, 30, 8);
         this.audio.play('wipe', mine ? 1 : 0.5);
         if (mine) {
           this.shake = 0.5;
@@ -446,10 +455,24 @@ export class Game {
       case 'reward':
         if (mine) {
           this.addGems(e.n);
-          this.popAt(`+${e.n} GEMS`, this.me.squad.x, 2.6, -2, 'gem');
+          this.popAt(`+${e.n} GEMS`, this.me.squad.x, 2.6, this.me.squad.z - 2, 'gem');
         }
         break;
     }
+  }
+
+  /** In co-op each squad shows its player's name; in solo, none. */
+  private applyNames(): void {
+    const [p0, p1] = this.w.players;
+    if (!this.inCoop || !p1.active) {
+      p0.squad.setName(null);
+      p1.squad.setName(null);
+      return;
+    }
+    const mine = this.save.name || (this.myIdx === 0 ? 'Player 1' : 'Player 2');
+    const theirs = (this.myIdx === 0 ? cleanName(this.guestMsg?.n) : this.hostName) || (this.myIdx === 0 ? 'Player 2' : 'Player 1');
+    this.w.players[this.myIdx].squad.setName(`${mine} (you)`);
+    this.w.players[1 - this.myIdx].squad.setName(theirs);
   }
 
   private partnerAlive(): boolean {
@@ -540,8 +563,10 @@ export class Game {
     this.myIdx = 0;
     this.partner = false;
     this.guestMsg = null;
+    this.hostName = '';
     this.w.setCoop(false);
     this.w.setLocalPlayer(0);
+    this.applyNames();
   }
 
   private onPartner(present: boolean): void {
@@ -574,10 +599,18 @@ export class Game {
     if (!raw || typeof raw !== 'object') return;
     const msg = raw as GuestMsg | HostMsg;
     if (this.mode === 'host' && msg.r === 'g') {
+      const nameChanged = cleanName(msg.n) !== cleanName(this.guestMsg?.n);
       this.guestMsg = msg;
-      if (this.w.players[1].active) this.w.players[1].squad.setTarget(Number(msg.x) || 0);
+      if (this.w.players[1].active) {
+        this.w.players[1].squad.setTarget(Number(msg.x) || 0);
+        this.w.players[1].squad.setTargetZ(Number(msg.z) || 0);
+      }
+      if (nameChanged) this.applyNames();
     } else if (this.mode === 'guest' && msg.r === 'h') {
+      const nameChanged = cleanName(msg.n) !== this.hostName;
+      this.hostName = cleanName(msg.n);
       this.onHostMsg(msg);
+      if (nameChanged) this.applyNames();
     }
   }
 
@@ -611,13 +644,26 @@ export class Game {
             : 'lobby';
       const now = performance.now();
       this.recent = this.recent.filter((r) => now - r.at < EVENT_RESEND_MS);
-      const msg: HostMsg = { r: 'h', s: stage, lv: stage === 'lobby' ? this.save.level : this.level, run: this.run };
+      const msg: HostMsg = {
+        r: 'h',
+        s: stage,
+        lv: stage === 'lobby' ? this.save.level : this.level,
+        run: this.run,
+        n: this.save.name,
+      };
       if (stage !== 'lobby') msg.snap = encodeSnap(this.sim, this.w, this.recent.map((r) => r.a));
       if (stage === 'result') msg.won = this.sim.result === 'won' ? 1 : 0;
       ch.send(msg);
     } else {
       const st = statsOf(this.save);
-      const msg: GuestMsg = { r: 'g', x: Math.round(this.me.squad.targetX * 100) / 100, st: [st.start, st.power, st.rate] };
+      const sq = this.me.squad;
+      const msg: GuestMsg = {
+        r: 'g',
+        x: Math.round(sq.targetX * 100) / 100,
+        z: Math.round(sq.targetZ * 100) / 100,
+        st: [st.start, st.power, st.rate],
+        n: this.save.name,
+      };
       ch.send(msg);
     }
   }
@@ -631,10 +677,13 @@ export class Game {
     this.trackPerformance(dt);
 
     const drag = this.input.consumeDrag();
+    const dragY = this.input.consumeDragY();
     if (this.state === 'playing') {
       // Dragging ~80% of a phone-width screen sweeps the whole track.
       const worldPerPx = (TRACK_HALF * 2) / Math.min(window.innerWidth * 0.8, 560);
       this.me.squad.steer(drag * worldPerPx);
+      // Dragging up moves the squad forward, down moves it back.
+      this.me.squad.steerZ(dragY * worldPerPx * 1.2);
     }
 
     // Fixed-step simulation keeps gameplay identical at 30, 60 or 120 Hz.
@@ -665,6 +714,7 @@ export class Game {
     if (running) {
       this.time += dt;
       this.me.squad.steer(this.input.keyAxis * KEY_STEER_SPEED * dt);
+      this.me.squad.steerZ(this.input.keyAxisY * KEY_STEER_SPEED * 0.7 * dt);
       if (this.mode === 'guest') {
         this.replica.step(dt, this.time);
         this.ui.setProgress(this.replica.distance / this.levelLength);
@@ -690,14 +740,16 @@ export class Game {
   private updateCamera(dt: number): void {
     const cam = this.gs.camera;
     const sx = this.me.squad.x;
-    cam.position.set(sx * 0.35, 6.8, 8.6);
+    // Follow the squad sideways, and partly as it moves forward or back.
+    const sz = this.me.squad.z * 0.6;
+    cam.position.set(sx * 0.35, 6.8, 8.6 + sz);
     if (this.shake > 0) {
       this.shake = Math.max(0, this.shake - dt);
       const k = this.shake * 0.6;
       cam.position.x += (Math.random() - 0.5) * k;
       cam.position.y += (Math.random() - 0.5) * k;
     }
-    cam.lookAt(sx * 0.25, 0, -14);
+    cam.lookAt(sx * 0.25, 0, -14 + sz);
   }
 
   /** Drop bloom, then resolution, if frames are consistently slow while playing. */

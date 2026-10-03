@@ -81,8 +81,8 @@
             <button id="btn-coop" class="btn btn-blue"><svg class="btn-ico"><use href="#i-users" /></svg>CO-OP</button>
             <button id="btn-shop" class="btn btn-purple"><svg class="btn-ico"><use href="#i-up" /></svg>UPGRADES</button>
           </div>
-          <p class="hint ctl-touch">Drag to steer · your squad fires on its own</p>
-          <p class="hint ctl-keys">← → or A D to steer · your squad fires on its own · Esc pauses</p>
+          <p class="hint ctl-touch">Drag to move · your squad fires on its own</p>
+          <p class="hint ctl-keys">Arrows or WASD to move · your squad fires on its own · Esc pauses</p>
         </div>
       </section>
 
@@ -100,6 +100,10 @@
           <h2 class="ribbon ribbon-blue">CO-OP</h2>
           <div id="coop-choose" class="stack">
             <p class="sub">Play the same level with a friend. You each steer your own squad.</p>
+            <label class="name-field" for="name-input">
+              <span class="hud-tag">YOUR NAME</span>
+              <input id="name-input" maxlength="12" placeholder="Player" autocomplete="nickname" spellcheck="false" />
+            </label>
             <button id="btn-host" class="btn btn-gold">HOST A GAME</button>
             <p class="or">or join with a code</p>
             <form id="join-form" class="join-row">

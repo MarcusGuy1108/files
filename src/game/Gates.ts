@@ -34,6 +34,8 @@ export interface GatePair {
   id: number;
   gates: Gate[];
   z: number;
+  /** Bit per player index that has already walked through it. */
+  passed: number;
 }
 
 export interface GateDef {
@@ -58,7 +60,7 @@ export class Gates {
   }
 
   spawnPair(defs: GateDef[], z: number, id?: number): GatePair {
-    const pair: GatePair = { id: id ?? this.nextId++, gates: [], z };
+    const pair: GatePair = { id: id ?? this.nextId++, gates: [], z, passed: 0 };
     for (const d of defs) {
       const g = this.free.pop() ?? this.create();
       const w = d.x1 - d.x0;
@@ -81,8 +83,19 @@ export class Gates {
 
   /** Bullet hit: every `cost` points absorbed raises the gate by one. Returns the gain. */
   hit(g: Gate, points: number, cost: number): number {
-    if (g.mul) return 0;
+    if (g.mul >= 1) return 0; // ×2 gates don't change
     g.progress += points;
+    if (g.mul > 0) {
+      // Percentage gates: every point shaves 2% off the loss, up to a harmless 0.
+      const gain = Math.floor(g.progress / cost);
+      if (gain > 0) {
+        g.progress -= gain * cost;
+        const m = Math.min(1, g.mul + gain * 0.02);
+        if (m >= 0.995) this.setValue(g, 0, 0);
+        else this.setValue(g, 0, Math.round(m * 100) / 100);
+      }
+      return gain;
+    }
     const gain = Math.floor(g.progress / cost);
     if (gain > 0) {
       g.progress -= gain * cost;
@@ -151,10 +164,20 @@ export class Gates {
   setValue(g: Gate, v: number, mul = g.mul): void {
     g.value = v;
     g.mul = mul;
-    const color = mul ? GATE_MUL : v > 0 ? GATE_GOOD : GATE_BAD;
+    const color = mul >= 1 ? GATE_MUL : mul > 0 ? GATE_BAD : v > 0 ? GATE_GOOD : GATE_BAD;
     g.panelMat.color.setHex(color);
     g.frameMat.color.setHex(color);
-    g.text.set(mul ? `×${mul}` : v > 0 ? `+${fmtCount(v)}` : v < 0 ? `−${fmtCount(-v)}` : '0');
+    g.text.set(
+      mul >= 1
+        ? `×${mul}`
+        : mul > 0
+          ? `−${Math.round((1 - mul) * 100)}%`
+          : v > 0
+            ? `+${fmtCount(v)}`
+            : v < 0
+              ? `−${fmtCount(-v)}`
+              : '0',
+    );
   }
 
   private create(): Gate {

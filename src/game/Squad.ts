@@ -9,6 +9,9 @@ export const MAX_VISIBLE = 80;
 const SPACING = 0.34;
 const GOLDEN_ANGLE = Math.PI * (3 - Math.sqrt(5));
 const STEER_SMOOTHING = 22;
+/** How far a squad can move forward (negative z) and back from the line. */
+export const Z_FORWARD = -6;
+export const Z_BACK = 1.5;
 
 /** The player's crowd: a formation of members that moves left and right as one. */
 export interface SquadLook {
@@ -24,6 +27,9 @@ export class Squad {
   count = 0;
   x = 0;
   targetX = 0;
+  /** Forward/back position (negative = further up the track). */
+  z = 0;
+  targetZ = 0;
   private shown = 0;
   private group = new THREE.Group();
   private bodyMat: THREE.MeshLambertMaterial;
@@ -36,6 +42,8 @@ export class Squad {
   private dummy = new THREE.Object3D();
   private label: TextLabel;
   private labelSprite: THREE.Sprite;
+  private nameLabel: TextLabel;
+  private nameSprite: THREE.Sprite;
 
   constructor(parent: THREE.Object3D, look: SquadLook = LOOK_SELF) {
     const bodyGeo = new THREE.CapsuleGeometry(0.15, 0.36, 3, 8);
@@ -64,6 +72,11 @@ export class Squad {
     this.label = new TextLabel(256, 128, { bg: 'rgba(8, 20, 40, 0.85)', border: look.border });
     this.labelSprite = labelSprite(this.label, 1.5, 0.75);
     this.group.add(this.labelSprite);
+    // Player name (co-op), above the count.
+    this.nameLabel = new TextLabel(320, 80, { color: look.border });
+    this.nameSprite = labelSprite(this.nameLabel, 2.4, 0.6);
+    this.nameSprite.visible = false;
+    this.group.add(this.nameSprite);
     parent.add(this.group);
   }
 
@@ -71,6 +84,16 @@ export class Squad {
     this.bodyMat.color.setHex(look.body);
     this.bodyMat.emissive.setHex(look.emissive);
     this.label.setBorder(look.border);
+    this.nameLabel.set(this.name, look.border);
+  }
+
+  private name = '';
+
+  /** Show a player name over the squad (co-op), or hide it with null. */
+  setName(name: string | null): void {
+    this.name = name ?? '';
+    this.nameLabel.set(this.name);
+    this.nameSprite.visible = !!name;
   }
 
   setVisible(v: boolean): void {
@@ -93,6 +116,7 @@ export class Squad {
   reset(count: number): void {
     this.count = count;
     this.x = this.targetX = 0;
+    this.z = this.targetZ = 0;
     this.shown = 0;
     this.offsets.fill(0);
     this.update(0, 0, false);
@@ -111,17 +135,27 @@ export class Squad {
     this.targetX = THREE.MathUtils.clamp(x, -lim, lim);
   }
 
+  steerZ(dz: number): void {
+    this.setTargetZ(this.targetZ + dz);
+  }
+
+  setTargetZ(z: number): void {
+    this.targetZ = THREE.MathUtils.clamp(z, Z_FORWARD, Z_BACK);
+  }
+
   /** World position of member `i`, used as a muzzle for bullets. */
   memberX(i: number): number {
     return this.memberWorldX(this.offsets[i * 2]);
   }
 
   memberZ(i: number): number {
-    return this.offsets[i * 2 + 1];
+    return this.offsets[i * 2 + 1] + this.z;
   }
 
   update(dt: number, time: number, running: boolean): void {
     this.x += (this.targetX - this.x) * Math.min(1, dt * STEER_SMOOTHING);
+    this.z += (this.targetZ - this.z) * Math.min(1, dt * STEER_SMOOTHING * 0.6);
+    this.group.position.z = this.z;
 
     const n = this.visible;
     // New members appear in the middle and spread out to their slot.
@@ -154,6 +188,8 @@ export class Squad {
     this.label.set(fmtCount(this.count));
     this.labelSprite.visible = this.count > 0;
     this.labelSprite.position.set(this.x, 1.5, -this.radius * 0.6);
+    this.nameSprite.position.set(this.x, 2.2, -this.radius * 0.6);
+    this.nameSprite.visible = !!this.name && this.count > 0;
     if (this.bubble.visible) {
       const r = this.radius + 0.5;
       this.bubble.position.set(this.x, 0, 0);

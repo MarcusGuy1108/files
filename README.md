@@ -10,10 +10,13 @@ Lead a neon squad down the track. Your squad fires on its own; you steer.
 | Action          | Keyboard          | Touch / mouse              |
 | --------------- | ----------------- | -------------------------- |
 | Steer           | ← → or A D (hold) | Drag left / right anywhere |
+| Forward / back  | ↑ ↓ or W S (hold) | Drag up / down anywhere |
 | Pause / menu    | Esc or P          | Pause button               |
 | Start / retry   | Enter or Space    | Tap                        |
 
-- **Gates:** walk through a green **+N** gate to add members; a red **−N** gate removes them. Shooting a gate raises its number, so a red gate can turn green.
+- **Gates:** walk through a green **+N** gate to add members; a red **−N** gate removes them. Shooting a gate raises its number, so a red gate can turn green. From level 2, red **−%** gates take a share of your squad; shooting them shrinks the loss.
+- **Big squads face tougher enemies:** once your squad is bigger than expected for the level, enemy, obstacle and boss health scale up to match, so a huge squad still has a fight.
+- **Safe start:** each level opens with a short shield and a gap before the first wave.
 - **Enemies:** the number over each enemy is its health. If one reaches your squad, you lose that many members.
   - **Grunts** (red) and **brutes** (orange) walk straight at you.
   - **Dashers** (purple, from level 3) are fast and home in on your squad.
@@ -49,6 +52,8 @@ Two players, two squads, one level. Each player steers their own squad and uses 
 
 1. One player taps **CO-OP → HOST A GAME** and gets a 5-character session code.
 2. The other taps **CO-OP**, enters the code and taps **JOIN**.
+
+Enter a name on the co-op screen to show it above your squad, with "(you)" on your own.
 3. The host taps **START**. After each level, the host's **NEXT LEVEL** brings both players into the next one.
 
 If one squad is wiped out, that player watches until the level ends. In co-op the game can't be paused, because the other player is still playing.

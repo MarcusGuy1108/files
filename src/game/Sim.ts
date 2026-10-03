@@ -77,6 +77,8 @@ export class Sim {
       p.squad.reset(p.stats.start);
       p.fireTimer = 0;
       p.pw = noPowers();
+      // Spawn protection: a short shield so nothing can wipe a fresh squad instantly.
+      p.pw.shield = 2.5;
       p.wiped = false;
     }
     this.spawnEvents();
@@ -152,7 +154,8 @@ export class Sim {
       const ev = events[this.eventIdx++];
       const z = -(ev.at - this.distance);
       if (ev.type === 'wave') {
-        for (const e of ev.enemies) w.enemies.spawn(e.kind, e.x, z + e.dz, e.hp, e.shield);
+        const m = this.toughness();
+        for (const e of ev.enemies) w.enemies.spawn(e.kind, e.x, z + e.dz, Math.round(e.hp * m), Math.round(e.shield * m));
       } else if (ev.type === 'gates') {
         w.gates.spawnPair(ev.gates, z);
       } else if (ev.type === 'gems') {
@@ -165,9 +168,23 @@ export class Sim {
     }
     const bossAt = this.plan.length + BOSS_GAP;
     if (!this.boss && this.phase === 'run' && bossAt - this.distance < SPAWN_AHEAD) {
-      this.boss = w.enemies.spawn('boss', 0, -(bossAt - this.distance), this.plan.bossHp);
+      this.boss = w.enemies.spawn('boss', 0, -(bossAt - this.distance), Math.round(this.plan.bossHp * this.toughness()));
       this.emit({ k: 'boss' });
     }
+  }
+
+  /**
+   * Keeps big squads challenged: when the squads are stronger than expected at this point
+   * of the level, newly spawned enemies, obstacles and the boss get proportionally tougher.
+   */
+  private toughness(): number {
+    const alive = this.players.filter((p) => !p.wiped);
+    const total = alive.reduce((sum, p) => sum + p.squad.count, 0);
+    const L = this.plan.level - 1;
+    const progress = Math.min(1, this.distance / this.plan.length);
+    const expected = (10 + 4 * L) * (1 + 2 * progress) * Math.max(1, this.players.length);
+    const ratio = total / expected;
+    return ratio > 1 ? Math.min(8, Math.pow(ratio, 0.8)) : 1;
   }
 
   /** Start scheduled events when the squad reaches them, and run any in progress. */
@@ -213,7 +230,7 @@ export class Sim {
         const lim = TRACK_HALF - 0.6;
         const x = Math.max(-lim, Math.min(lim, target.x + (Math.random() - 0.5) * 2.6));
         const t = 1.5;
-        const z = -this.plan.speed * t; // scrolls to the squad's line as it lands
+        const z = target.z - this.plan.speed * t; // scrolls to the squad's line as it lands
         this.meteors.push({ x, z, t });
         this.w.hazards.spawn(x, z, t);
         this.emit({ k: 'meteor', x, z, t });
@@ -227,7 +244,7 @@ export class Sim {
       if (m.t > 0) continue;
       this.meteors.splice(i, 1);
       const hit = alive.find(
-        (p) => Math.abs(p.squad.x - m.x) < METEOR_RADIUS + p.squad.radius * 0.4 && Math.abs(m.z) < 1.5 + p.squad.radius * 0.5,
+        (p) => Math.abs(p.squad.x - m.x) < METEOR_RADIUS + p.squad.radius * 0.4 && Math.abs(m.z - p.squad.z) < 1.5 + p.squad.radius * 0.5,
       );
       let loss = 0;
       if (hit && hit.pw.shield <= 0) {
@@ -247,7 +264,7 @@ export class Sim {
       const x = -TRACK_HALF + 0.6 + Math.random() * (TRACK_HALF * 2 - 1.2);
       const z = -16 - Math.random() * 10;
       const hp = Math.round((dasher ? 2 + Math.random() * 2 : 3 + Math.random() * 4) * this.plan.hpScale);
-      this.w.enemies.spawn(dasher ? 'dasher' : 'grunt', x, z, hp);
+      this.w.enemies.spawn(dasher ? 'dasher' : 'grunt', x, z, Math.round(hp * this.toughness()));
     }
   }
 
@@ -257,7 +274,7 @@ export class Sim {
     for (let i = 0; i < n; i++) {
       const x = -TRACK_HALF + 0.5 + Math.random() * (TRACK_HALF * 2 - 1);
       const z = -38 - Math.floor(i / 4) * 2.4 - Math.random();
-      this.w.enemies.spawn('grunt', x, z, Math.round((1.5 + Math.random() * 2) * this.plan.hpScale));
+      this.w.enemies.spawn('grunt', x, z, Math.round((1.5 + Math.random() * 2) * this.plan.hpScale * this.toughness()));
     }
   }
 
@@ -272,7 +289,7 @@ export class Sim {
       for (let k = 0; k < n; k++) {
         const off = (k - (n - 1) / 2) * (5.2 / Math.max(1, n - 1));
         const x = Math.max(-TRACK_HALF + 0.6, Math.min(TRACK_HALF - 0.6, p.x + off));
-        this.w.enemies.spawn('grunt', x, p.z + 2.5, Math.round(5 * this.plan.hpScale));
+        this.w.enemies.spawn('grunt', x, p.z + 2.5, Math.round(5 * this.plan.hpScale * this.toughness()));
       }
       this.emit({ k: 'summon', x: p.x, z: p.z });
     }
@@ -387,17 +404,25 @@ export class Sim {
     const alive = this.players.filter((p) => !p.wiped);
 
     // Gates: each squad's centre decides which gate of a pair it walks through.
+    // Squads can be at different depths, so each one passes a gate on its own.
     for (let i = w.gates.pairs.length - 1; i >= 0; i--) {
       const pair = w.gates.pairs[i];
-      if (pair.z < -0.2) continue;
+      let all = true;
       for (const p of alive) {
+        const bit = 1 << p.idx;
+        if (pair.passed & bit) continue;
+        if (pair.z < p.squad.z - 0.2) {
+          all = false;
+          continue;
+        }
+        pair.passed |= bit;
         const g = w.gates.gateAt(pair, p.squad.x);
         if (!g) continue;
-        const v = g.mul ? p.squad.count * (g.mul - 1) : g.value;
+        const v = g.mul ? Math.round(p.squad.count * (g.mul - 1)) : g.value;
         p.squad.add(v);
         this.emit({ k: 'gate', p: p.idx, v });
       }
-      w.gates.removePair(pair);
+      if (all) w.gates.removePair(pair);
     }
 
     // Enemies that reach a squad take members equal to their remaining health (and shield).
@@ -407,7 +432,10 @@ export class Sim {
       const er = ENEMY_SPECS[e.kind].radius;
       const ew = hitHalfW(e.kind);
       const hitP = alive.find(
-        (p) => pos.z >= -(er + p.squad.radius * 0.6) && Math.abs(pos.x - p.squad.x) <= p.squad.radius + ew,
+        (p) =>
+          pos.z >= p.squad.z - (er + p.squad.radius * 0.6) &&
+          pos.z <= p.squad.z + p.squad.radius + er &&
+          Math.abs(pos.x - p.squad.x) <= p.squad.radius + ew,
       );
       if (!hitP) continue;
       const sq = hitP.squad;
@@ -438,7 +466,7 @@ export class Sim {
       const sx = p.squad.x;
       const r = p.squad.radius;
       for (let i = gems.n - 1; i >= 0; i--) {
-        if (Math.abs(gems.z[i]) < 0.9 && Math.abs(gems.x[i] - sx) < r + 0.3) {
+        if (Math.abs(gems.z[i] - p.squad.z) < 0.9 + r * 0.5 && Math.abs(gems.x[i] - sx) < r + 0.3) {
           this.emit({ k: 'gem', p: p.idx, x: gems.x[i], z: gems.z[i] });
           gems.remove(i);
         }
@@ -446,7 +474,7 @@ export class Sim {
       for (let i = w.powerups.active.length - 1; i >= 0; i--) {
         const pu = w.powerups.active[i];
         const pp = pu.group.position;
-        if (Math.abs(pp.z) < 1.2 && Math.abs(pp.x - sx) < r + 0.6) {
+        if (Math.abs(pp.z - p.squad.z) < 1.2 + r * 0.5 && Math.abs(pp.x - sx) < r + 0.6) {
           p.pw[pu.kind] = POWER_SPECS[pu.kind].duration;
           this.emit({ k: 'power', p: p.idx, kind: pu.kind });
           w.powerups.release(pu);

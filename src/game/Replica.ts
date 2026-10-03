@@ -30,6 +30,7 @@ export class Replica {
   private gateT = new Map<number, number>();
   private powerT = new Map<number, Target>();
   private partnerX = 0;
+  private partnerZ = 0;
   private hostDistance = 0;
   /** Called once per volley, for the shot sound. */
   onVolley: ((player: number) => void) | null = null;
@@ -76,8 +77,11 @@ export class Replica {
     s.p.forEach((row, i) => {
       const p = w.players[i];
       if (!p) return;
-      const [x, count, rapid, damage, shield, wiped, rate] = row;
-      if (i !== this.localIdx) this.partnerX = x;
+      const [x, count, rapid, damage, shield, wiped, rate, z] = row;
+      if (i !== this.localIdx) {
+        this.partnerX = x;
+        this.partnerZ = z ?? 0;
+      }
       p.squad.count = count;
       p.pw.rapid = rapid;
       p.pw.damage = damage;
@@ -192,7 +196,10 @@ export class Replica {
     const fighting = this.phase === 'run' || this.phase === 'arena';
     for (const p of w.players) {
       if (!p.active) continue;
-      if (p.idx !== this.localIdx) p.squad.setTarget(this.partnerX);
+      if (p.idx !== this.localIdx) {
+        p.squad.setTarget(this.partnerX);
+        p.squad.setTargetZ(this.partnerZ);
+      }
       p.squad.update(dt, time, this.phase === 'run' && !p.wiped);
       p.squad.setShield(p.pw.shield > 0 && !p.wiped);
       if (fighting && !p.wiped) this.fire(p, dt);

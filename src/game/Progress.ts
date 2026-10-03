@@ -6,6 +6,8 @@ export interface SaveData {
   upgrades: Record<UpgradeId, number>;
   music: boolean;
   sfx: boolean;
+  /** Display name shown over your squad in co-op. */
+  name: string;
 }
 
 interface UpgradeDef {
@@ -57,7 +59,7 @@ export function upgradeValue(save: SaveData, id: UpgradeId): number {
 const KEY = 'neon-runner:save:v3';
 
 function fresh(): SaveData {
-  return { level: 1, gems: 0, upgrades: { squad: 0, power: 0, rate: 0 }, music: true, sfx: true };
+  return { level: 1, gems: 0, upgrades: { squad: 0, power: 0, rate: 0 }, music: true, sfx: true, name: '' };
 }
 
 // Storage can throw (private mode, blocked site data), so the game must work without it.
@@ -76,6 +78,7 @@ export function loadSave(): SaveData {
       }
       if (typeof raw.music === 'boolean') save.music = raw.music;
       if (typeof raw.sfx === 'boolean') save.sfx = raw.sfx;
+      if (typeof raw.name === 'string') save.name = cleanName(raw.name);
     }
   } catch {
     /* start fresh */
@@ -103,4 +106,13 @@ export function statsOf(save: SaveData): PlayerStats {
     power: upgradeValue(save, 'power'),
     rate: upgradeValue(save, 'rate'),
   };
+}
+
+/** Names are shown to the other player: letters, digits and a few symbols, 12 chars max. */
+export function cleanName(raw: unknown): string {
+  return String(raw ?? '')
+    .replace(/[^\p{L}\p{N} _.!?'-]/gu, '')
+    .replace(/\s+/g, ' ')
+    .trim()
+    .slice(0, 12);
 }

@@ -20,6 +20,7 @@ export interface UIHandlers {
   toggleSfx: () => void;
   /** The splash screen was dismissed (a user gesture: safe to start audio). */
   splashDone: () => void;
+  setName: (name: string) => void;
 }
 
 function $<T extends HTMLElement = HTMLElement>(id: string): T {
@@ -93,6 +94,9 @@ export class UI {
       e.preventDefault();
       h.join($<HTMLInputElement>('join-code').value);
     });
+    const nameInput = $<HTMLInputElement>('name-input');
+    nameInput.addEventListener('change', () => h.setName(nameInput.value));
+    nameInput.addEventListener('keydown', (e) => e.key === 'Enter' && nameInput.blur());
     for (const b of document.querySelectorAll('.tgl-music')) b.addEventListener('click', h.toggleMusic);
     for (const b of document.querySelectorAll('.tgl-sfx')) b.addEventListener('click', h.toggleSfx);
     this.shopList.addEventListener('click', (e) => {
@@ -101,7 +105,7 @@ export class UI {
     });
     // Keep presses on overlay controls from also counting as gameplay taps or drags.
     $('ui').addEventListener('pointerdown', (e) => {
-      if ((e.target as HTMLElement).closest('button, input, form, #splash')) e.stopPropagation();
+      if ((e.target as HTMLElement).closest('button, input, form, label, #splash')) e.stopPropagation();
     });
 
     // Splash: art sized to the screen; tap anywhere (or press a key) to continue.
@@ -314,6 +318,10 @@ export class UI {
   }
 
   // ---------- Co-op screen ----------
+
+  setNameField(name: string): void {
+    $<HTMLInputElement>('name-input').value = name;
+  }
 
   showCoop(note: string): void {
     $('coop-choose').classList.remove('hidden');
