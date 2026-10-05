@@ -50,6 +50,19 @@ jobs:
           npm run build
           npx cap sync android
 
+      # Fetch Gradle on its own first, retrying: the download host sometimes
+      # returns a temporary server error.
+      - name: Download Gradle
+        if: steps.secret.outputs.ok == 'true'
+        working-directory: android
+        run: |
+          for i in 1 2 3 4; do
+            ./gradlew --version --no-daemon && exit 0
+            echo "Gradle download failed (attempt $i), retrying in $((i * 15))s…"
+            sleep $((i * 15))
+          done
+          exit 1
+
       - name: Build the signed app bundle
         if: steps.secret.outputs.ok == 'true'
         working-directory: android
