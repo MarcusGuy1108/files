@@ -1,0 +1,9 @@
+{
+  "appId": "io.github.marcusguy1108.neonlegion",
+  "appName": "Neon Legion",
+  "webDir": "dist",
+  "backgroundColor": "#140728",
+  "android": {
+    "backgroundColor": "#140728"
+  }
+}

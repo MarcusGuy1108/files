@@ -188,6 +188,14 @@ export class AudioEngine {
     src.start(0);
   }
 
+  /** Silence everything while the page or app is in the background. */
+  setHidden(hidden: boolean): void {
+    const ctx = this.ctx;
+    if (!ctx) return;
+    if (hidden) void ctx.suspend().catch(() => {});
+    else void ctx.resume().catch(() => {});
+  }
+
   get running(): boolean {
     return this.ctx?.state === 'running';
   }

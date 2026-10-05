@@ -133,12 +133,37 @@ export class Game {
 
     window.addEventListener('resize', () => this.gs.resize());
     document.addEventListener('visibilitychange', () => {
+      this.audio.setHidden(document.hidden);
       if (!document.hidden) return;
       if (this.mode === 'solo') this.pause();
       persist(this.save);
     });
 
     this.toMenu();
+  }
+
+  /**
+   * The Android back button: steps back one screen. Returns false on the main menu
+   * (and splash) so the app can close.
+   */
+  back(): boolean {
+    if (this.ui.splashActive) return false;
+    switch (this.state) {
+      case 'menu':
+        return false;
+      case 'shop':
+        this.closeShop();
+        return true;
+      case 'playing':
+        this.pause();
+        return true;
+      case 'paused':
+        this.resume();
+        return true;
+      default:
+        this.toMenu();
+        return true;
+    }
   }
 
   start(): void {

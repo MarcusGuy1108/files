@@ -6,6 +6,7 @@ import '@fontsource/nunito/latin-900.css';
 import './style.css';
 import { Game } from './game/Game';
 import { isWebGLAvailable } from './render/Scene';
+import { initNative } from './native';
 
 const canvas = document.getElementById('game') as HTMLCanvasElement;
 
@@ -15,6 +16,7 @@ if (!isWebGLAvailable()) {
 } else {
   const game = new Game(canvas);
   game.start();
+  void initNative(game);
   // Handy for debugging and automated tests; stripped from production builds.
   if (import.meta.env.DEV) (window as unknown as { __game: Game }).__game = game;
 }

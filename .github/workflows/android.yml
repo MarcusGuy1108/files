@@ -1,0 +1,68 @@
+name: Build Android app
+
+# Builds the signed app bundle (.aab) that gets uploaded to Google Play.
+# Download it from the run's "Artifacts" section.
+on:
+  push:
+    branches: [claude/mobile-web-game-design-krvint, main]
+    paths-ignore: ['**.md', 'docs/**']
+  workflow_dispatch:
+
+concurrency:
+  group: android-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  bundle:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the signing password secret is set
+        id: secret
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+        run: |
+          if [ -z "$ANDROID_KEYSTORE_PASSWORD" ]; then
+            echo "::warning::Skipping the Android build: add the ANDROID_KEYSTORE_PASSWORD secret (Settings > Secrets and variables > Actions) to sign the app."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-node@v4
+        if: steps.secret.outputs.ok == 'true'
+        with:
+          node-version: 22
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        if: steps.secret.outputs.ok == 'true'
+        with:
+          distribution: temurin
+          java-version: 21
+          cache: gradle
+
+      - name: Build the game
+        if: steps.secret.outputs.ok == 'true'
+        run: |
+          npm ci
+          npm run build
+          npx cap sync android
+
+      - name: Build the signed app bundle
+        if: steps.secret.outputs.ok == 'true'
+        working-directory: android
+        env:
+          ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
+          # Play needs a higher version code for every upload.
+          VERSION_CODE: ${{ github.run_number }}
+          VERSION_NAME: 1.0.${{ github.run_number }}
+        run: ./gradlew bundleRelease --no-daemon
+
+      - uses: actions/upload-artifact@v4
+        if: steps.secret.outputs.ok == 'true'
+        with:
+          name: neon-legion-${{ github.run_number }}
+          path: android/app/build/outputs/bundle/release/app-release.aab
+          if-no-files-found: error

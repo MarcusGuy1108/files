@@ -46,6 +46,10 @@ Lead a neon squad down the track. Your squad fires on its own; you steer.
 
 See [docs/gem-store-plan.md](docs/gem-store-plan.md) for the plan to sell gems on Google Play and the App Store.
 
+### Android app
+
+The game is also packaged as an Android app with Capacitor (`android/`). GitHub Actions builds a signed `.aab` for Google Play on every push. See [docs/android-launch.md](docs/android-launch.md) for the Play Store launch steps.
+
 ### Co-op
 
 Two players, two squads, one level. Each player steers their own squad and uses their own upgrades. You fight the same enemies, gates and boss together, and the level is cleared for both of you.
