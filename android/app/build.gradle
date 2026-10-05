@@ -4,7 +4,7 @@ android {
     namespace = "io.github.marcusguy1108.neonlegion"
     compileSdk = rootProject.ext.compileSdkVersion
     defaultConfig {
-        applicationId "io.github.marcusguy1108.neonlegion"
+        applicationId "com.marcusgames.neonlegi"
         minSdkVersion rootProject.ext.minSdkVersion
         targetSdkVersion rootProject.ext.targetSdkVersion
         // CI passes the run number so every upload gets a higher version code.

@@ -48,7 +48,7 @@ Go to **Play Console → Create app**:
 - Free or paid: **Free**. Free apps can still sell gems later, but a free app can never be changed to paid.
 - Tick the declarations and create the app.
 
-The package name is set by the first upload: `io.github.marcusguy1108.neonlegion`. It can never change.
+The package name was fixed when the app was created in Play Console: `com.marcusgames.neonlegi`. It can never change, and it must match `applicationId` in `android/app/build.gradle`.
 
 ## 4. App content forms (Policy → App content)
 
