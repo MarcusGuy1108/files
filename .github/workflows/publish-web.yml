@@ -1,7 +1,7 @@
 name: Publish web version
 
 # Builds the game and copies only the finished files to the public repo
-# MarcusGuy1108.github.io, which serves https://marcusguy1108.github.io/.
+# MarcusGuy1108/neotest, which serves https://marcusguy1108.github.io/neotest/.
 # This repo (with the source) can stay private.
 on:
   push:
@@ -44,7 +44,7 @@ jobs:
           npm run build
           touch dist/.nojekyll
 
-      - name: Copy the build to MarcusGuy1108.github.io
+      - name: Copy the build to neotest
         if: steps.secret.outputs.ok == 'true'
         env:
           PAGES_DEPLOY_KEY: ${{ secrets.PAGES_DEPLOY_KEY }}
@@ -54,12 +54,12 @@ jobs:
           chmod 600 ~/.ssh/id_ed25519
           ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
 
-          git clone --depth 1 git@github.com:MarcusGuy1108/MarcusGuy1108.github.io.git site
+          git clone --depth 1 git@github.com:MarcusGuy1108/neotest.git site
           rsync -a --delete --exclude .git dist/ site/
           cat > site/README.md <<'EOF'
           # Neon Legion
 
-          Play in your browser: https://marcusguy1108.github.io/
+          Play in your browser: https://marcusguy1108.github.io/neotest/
 
           This repo only holds the published game files and is updated automatically.
           EOF
