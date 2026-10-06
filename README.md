@@ -82,7 +82,7 @@ The build uses relative paths, so you can host the `dist/` folder anywhere stati
 
 ### Publishing the web version
 
-The source repo is private. `.github/workflows/publish-web.yml` builds the game on every push and copies only the finished files to the public repo `MarcusGuy1108/neotest`, which serves the game at https://marcusguy1108.github.io/neotest/. It needs the `PAGES_DEPLOY_KEY` secret here, and the matching public key added as a deploy key with write access on `neotest`.
+The source repo is private. `.github/workflows/publish-web.yml` builds the game on every push and copies only the finished files to the public repo `MarcusGuy1108/neontest`, which serves the game at https://marcusguy1108.github.io/neontest/. It needs the `PAGES_DEPLOY_KEY` secret here, and the matching public key added as a deploy key with write access on `neontest`.
 
 ### Testing co-op on one computer
 
