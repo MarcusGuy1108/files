@@ -1,0 +1,77 @@
+name: Publish web version
+
+# Builds the game and copies only the finished files to the public repo
+# MarcusGuy1108.github.io, which serves https://marcusguy1108.github.io/.
+# This repo (with the source) can stay private.
+on:
+  push:
+    branches: [claude/mobile-web-game-design-krvint, main]
+    paths-ignore: ['**.md', 'docs/**', 'android/**', 'store/**', 'resources/**']
+  workflow_dispatch:
+
+concurrency:
+  group: publish-web
+  cancel-in-progress: true
+
+jobs:
+  publish:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check the deploy key secret is set
+        id: secret
+        env:
+          PAGES_DEPLOY_KEY: ${{ secrets.PAGES_DEPLOY_KEY }}
+        run: |
+          if [ -z "$PAGES_DEPLOY_KEY" ]; then
+            echo "::warning::Skipping: add the PAGES_DEPLOY_KEY secret (Settings > Secrets and variables > Actions) to publish the web version."
+            echo "ok=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "ok=true" >> "$GITHUB_OUTPUT"
+          fi
+
+      - uses: actions/setup-node@v4
+        if: steps.secret.outputs.ok == 'true'
+        with:
+          node-version: 22
+          cache: npm
+
+      - name: Build the game
+        if: steps.secret.outputs.ok == 'true'
+        run: |
+          npm ci
+          npm run build
+          touch dist/.nojekyll
+
+      - name: Copy the build to MarcusGuy1108.github.io
+        if: steps.secret.outputs.ok == 'true'
+        env:
+          PAGES_DEPLOY_KEY: ${{ secrets.PAGES_DEPLOY_KEY }}
+        run: |
+          mkdir -p ~/.ssh
+          printf '%s\n' "$PAGES_DEPLOY_KEY" > ~/.ssh/id_ed25519
+          chmod 600 ~/.ssh/id_ed25519
+          ssh-keyscan github.com >> ~/.ssh/known_hosts 2>/dev/null
+
+          git clone --depth 1 git@github.com:MarcusGuy1108/MarcusGuy1108.github.io.git site
+          rsync -a --delete --exclude .git dist/ site/
+          cat > site/README.md <<'EOF'
+          # Neon Legion
+
+          Play in your browser: https://marcusguy1108.github.io/
+
+          This repo only holds the published game files and is updated automatically.
+          EOF
+
+          cd site
+          git checkout -B main
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add -A
+          if git diff --cached --quiet; then
+            echo "No changes to publish."
+          else
+            git commit -m "Publish Neon Legion (${GITHUB_SHA::7})"
+            git push origin main
+          fi

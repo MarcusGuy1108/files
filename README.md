@@ -80,9 +80,9 @@ npm run preview   # serve the production build
 
 The build uses relative paths, so you can host the `dist/` folder anywhere static.
 
-### Publishing to GitHub Pages
+### Publishing the web version
 
-`.github/workflows/deploy.yml` builds and publishes the game on every push. To switch it on, go to the repository's **Settings → Pages → Build and deployment** and set **Source** to **GitHub Actions**, then re-run the workflow or push again. The game is then live at `https://<user>.github.io/<repo>/`.
+The source repo is private. `.github/workflows/publish-web.yml` builds the game on every push and copies only the finished files to the public repo `MarcusGuy1108.github.io`, which serves the game at https://marcusguy1108.github.io/. It needs the `PAGES_DEPLOY_KEY` secret here, and the matching public key added as a deploy key with write access on `MarcusGuy1108.github.io`.
 
 ### Testing co-op on one computer
 
