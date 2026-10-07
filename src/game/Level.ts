@@ -49,23 +49,29 @@ function mulberry32(seed: number): () => number {
   };
 }
 
-export function buildLevel(level: number, coop = false): LevelPlan {
-  const rnd = mulberry32(level * 9973 + 17);
+/**
+ * Lays out a level. Pass a fresh `seed` for each attempt so the layout can't be memorised;
+ * without one the layout is fixed for the level (handy for tests). The length and
+ * difficulty numbers never depend on the seed.
+ */
+export function buildLevel(level: number, coop = false, seed = level * 9973 + 17): LevelPlan {
+  const rnd = mulberry32(seed);
   const range = (a: number, b: number) => a + (b - a) * rnd();
   const int = (a: number, b: number) => Math.floor(range(a, b + 1));
 
   const L = level - 1;
   // Two squads means twice the firepower, so enemies get tougher in co-op.
   const hpScale = (1 + 0.3 * L) * (coop ? 1.5 : 1);
-  const gateScale = 1 + 0.35 * L;
+  const gateScale = 1 + 0.32 * L;
   const length = Math.min(900, 420 + 45 * L);
   const events: LevelEvent[] = [];
   const spread = (TRACK_HALF - 0.8) * 2;
 
-  const wave = (at: number, size: number, opener = false) => {
+  /** `easy` waves (the first few) have no brutes or shield bearers. */
+  const wave = (at: number, size: number, easy = false) => {
     const enemies: WaveEnemy[] = [];
-    const cols = Math.min(4, size);
-    const bruteChance = opener ? 0 : level === 1 ? 0.05 : Math.min(0.5, 0.06 + 0.06 * L);
+    const cols = Math.min(5, size);
+    const bruteChance = easy ? 0 : level === 1 ? 0.05 : Math.min(0.4, 0.04 + 0.05 * L);
     for (let i = 0; i < size; i++) {
       const brute = rnd() < bruteChance;
       const col = i % cols;
@@ -74,13 +80,27 @@ export function buildLevel(level: number, coop = false): LevelPlan {
       enemies.push({
         kind: brute ? 'brute' : 'grunt',
         x,
-        dz: -row * 2.6 - range(0, 0.8),
-        hp: Math.round((brute ? range(14, 22) : range(3, 7)) * hpScale),
+        dz: -row * 2.3 - range(0, 0.8),
+        hp: Math.round((brute ? range(10, 16) : range(3, 7)) * hpScale),
         shield: 0,
       });
     }
+    // From level 2 a swarm of weak grunts follows the wave: lots to mow down.
+    if (!easy && level >= 2) {
+      const swarm = Math.min(12, 3 + level);
+      const back = -Math.ceil(size / cols) * 2.3 - 2;
+      for (let i = 0; i < swarm; i++) {
+        enemies.push({
+          kind: 'grunt',
+          x: range(-spread / 2, spread / 2),
+          dz: back - Math.floor(i / 5) * 1.6 - range(0, 0.6),
+          hp: Math.max(1, Math.round(range(1, 2.5) * hpScale)),
+          shield: 0,
+        });
+      }
+    }
     // From level 4 a shield bearer leads some waves, protecting the ranks behind it.
-    if (level >= 4 && rnd() < Math.min(0.6, 0.2 + 0.08 * (level - 4))) {
+    if (!easy && level >= 4 && rnd() < Math.min(0.6, 0.2 + 0.08 * (level - 4))) {
       enemies.push({
         kind: 'bearer',
         x: range(-1.8, 1.8),
@@ -94,7 +114,7 @@ export function buildLevel(level: number, coop = false): LevelPlan {
 
   // From level 3: a fast pack of dashers that homes in on your squad.
   const rush = (at: number) => {
-    const n = Math.min(7, 3 + Math.floor(L / 2));
+    const n = Math.min(12, 4 + L);
     const enemies: WaveEnemy[] = [];
     for (let i = 0; i < n; i++) {
       enemies.push({
@@ -113,14 +133,14 @@ export function buildLevel(level: number, coop = false): LevelPlan {
     const plus = () => Math.max(1, Math.round(range(3, 9) * gateScale));
     const minus = () => -Math.max(1, Math.round(range(2, 8) * gateScale));
     // From level 2 some losses are percentages, which hurt big squads as much as small ones.
-    const pct = () => (level >= 2 && rnd() < Math.min(0.45, 0.2 + 0.03 * L) ? Math.round(range(0.55, 0.8) * 100) / 100 : 0);
+    const pct = () => (level >= 3 && rnd() < Math.min(0.5, 0.2 + 0.04 * L) ? Math.round(range(0.5, 0.75) * 100) / 100 : 0);
     let defs: GateDef[];
     if (!first && level > 2 && roll < 0.2) {
       // A full-width negative gate: shoot it up before you reach it.
       const m = pct();
       defs = [{ x0: -TRACK_HALF, x1: TRACK_HALF, value: m ? 0 : -Math.round(range(3, 6) * gateScale), mul: m }];
     } else {
-      const both = roll > 0.85;
+      const both = roll > 0.9;
       const a = plus();
       const b = both ? Math.max(1, Math.round(a * range(0.3, 0.7))) : minus();
       const bm = both ? 0 : pct();
@@ -157,7 +177,7 @@ export function buildLevel(level: number, coop = false): LevelPlan {
   wave(42, 3, true);
   const opener = events[openerAt];
   if (opener.type === 'wave') for (const e of opener.enemies) e.hp = Math.max(1, Math.round(e.hp * 0.6));
-  gems(56, 3);
+  gems(56, 2);
   gates(75, true);
 
   let pos = 105;
@@ -186,6 +206,8 @@ export function buildLevel(level: number, coop = false): LevelPlan {
   };
 
   let last: 'wave' | 'gates' | 'gems' | 'obstacles' = 'gates';
+  // The first couple of waves are lighter, while a fresh squad is still small.
+  let waves = 0;
   while (pos < length - 45) {
     if (pos >= nextPower) {
       power(pos);
@@ -194,26 +216,29 @@ export function buildLevel(level: number, coop = false): LevelPlan {
     }
     const r = rnd();
     let pick: 'wave' | 'gates' | 'gems' | 'obstacles' =
-      last !== 'gates' && r < 0.36 ? 'gates' : r < 0.8 ? 'wave' : r < 0.9 ? 'obstacles' : 'gems';
+      last !== 'gates' && r < 0.32 ? 'gates' : r < 0.85 ? 'wave' : r < 0.95 ? 'obstacles' : 'gems';
     if (pick === 'obstacles' && last === 'obstacles') pick = 'wave';
     if (pick === 'obstacles') {
       obstacles(pos);
       pos += 24;
     } else if (pick === 'wave') {
-      if (level >= 3 && rnd() < 0.3) rush(pos);
-      else wave(pos, Math.min(10, 3 + Math.floor(level / 2) + int(0, 2)));
+      const size = Math.min(18, (level === 1 ? 3 : 3 + level) + int(0, 3));
+      if (waves < 2) wave(pos, Math.min(size, 4 + Math.floor(level / 2)), true);
+      else if (level >= 3 && rnd() < 0.3) rush(pos);
+      else wave(pos, size);
+      waves++;
       // Explosive barrels in front of a wave: shoot them as the enemies pass.
       if (level >= 2 && rnd() < 0.25) {
         const x = range(-2.5, 2.5);
         events.push({ at: pos - 2, type: 'wave', enemies: [{ kind: 'barrel', x, dz: 0, hp: Math.round(6 * hpScale), shield: 0 }] });
       }
-      if (rnd() < 0.25) gems(pos + 14, 3);
-      pos += range(30, 38);
+      if (rnd() < 0.1) gems(pos + 14, 2);
+      pos += range(24, 32);
     } else if (pick === 'gates') {
       gates(pos);
       pos += 32; // leave room so enemies aren't hidden right behind the gates
     } else {
-      gems(pos, int(3, 5));
+      gems(pos, int(2, 3));
       pos += 16;
     }
     last = pick;
@@ -252,11 +277,11 @@ export function buildLevel(level: number, coop = false): LevelPlan {
     coop,
     length,
     speed: Math.min(15, 11 + 0.3 * L),
-    bossHp: Math.round(600 * (1 + 0.6 * L) * (coop ? 1.7 : 1)),
+    bossHp: Math.round(650 * (1 + 0.6 * L) * (coop ? 1.7 : 1)),
     gateCost: 1 + 0.08 * L,
     hpScale,
-    bossReward: 6 + 2 * L,
-    clearBonus: 8 + 3 * L,
+    bossReward: 3 + L,
+    clearBonus: 4 + 2 * L,
     events,
   };
 }

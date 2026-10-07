@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 
 export const METEOR_RADIUS = 1.4;
-const MAX = 16;
+const MAX = 24;
 const FALL_HEIGHT = 26;
 
 interface Hazard {

@@ -26,14 +26,14 @@ interface KindSpec {
 }
 
 export const ENEMY_SPECS: Record<EnemyKind, KindSpec> = {
-  grunt: { radius: 0.55, height: 1.35, speed: 2.5, color: 0xff3b4e, drop: { chance: 0.3, count: 1 }, labelW: 1.6, stride: 9 },
-  brute: { radius: 0.95, height: 2.2, speed: 1.8, color: 0xff7a1a, drop: { chance: 1, count: 2 }, labelW: 2.0, stride: 6 },
-  dasher: { radius: 0.45, height: 1.0, speed: 6.5, color: 0xb45cff, drop: { chance: 0.25, count: 1 }, labelW: 1.3, stride: 0 },
-  bearer: { radius: 0.85, height: 2.0, speed: 1.6, color: 0x4d7cff, drop: { chance: 1, count: 2 }, labelW: 1.8, stride: 5 },
-  boss: { radius: 2.0, height: 4.2, speed: 1.6, color: 0xff2b8a, drop: { chance: 0, count: 0 }, labelW: 3.2, stride: 3.2 },
+  grunt: { radius: 0.55, height: 1.35, speed: 2.5, color: 0xff3b4e, drop: { chance: 0.06, count: 1 }, labelW: 1.6, stride: 9 },
+  brute: { radius: 0.95, height: 2.2, speed: 1.8, color: 0xff7a1a, drop: { chance: 0.3, count: 1 }, labelW: 2.0, stride: 6 },
+  dasher: { radius: 0.45, height: 1.0, speed: 6.5, color: 0xb45cff, drop: { chance: 0.05, count: 1 }, labelW: 1.3, stride: 0 },
+  bearer: { radius: 0.85, height: 2.0, speed: 1.6, color: 0x4d7cff, drop: { chance: 0.5, count: 1 }, labelW: 1.8, stride: 5 },
+  boss: { radius: 2.0, height: 4.2, speed: 2.2, color: 0xff2b8a, drop: { chance: 0, count: 0 }, labelW: 3.2, stride: 3.2 },
   barrel: { radius: 0.55, height: 1.15, speed: 0, color: 0xff4a1f, drop: { chance: 0, count: 0 }, labelW: 1.4, stride: 0, prop: true },
   tyres: { radius: 0.7, height: 1.05, speed: 0, color: 0x2a2d38, drop: { chance: 0, count: 0 }, labelW: 1.5, stride: 0, prop: true },
-  crate: { radius: 0.65, height: 1.2, speed: 0, color: 0x8a4dff, drop: { chance: 1, count: 2 }, labelW: 1.5, stride: 0, prop: true },
+  crate: { radius: 0.65, height: 1.2, speed: 0, color: 0x8a4dff, drop: { chance: 0.4, count: 1 }, labelW: 1.5, stride: 0, prop: true },
   barrier: { radius: 0.5, height: 1.3, speed: 0, color: 0x5d6478, drop: { chance: 0, count: 0 }, labelW: 1.8, stride: 0, prop: true, halfW: 1.9 },
 };
 
@@ -70,6 +70,8 @@ const BRUTE_TRIGGER_Z = -26;
 const WINDUP = 0.7;
 const CHARGE = 1.2;
 const CHARGE_MULT = 3.2;
+/** Seconds between boss roars (each one summons minions and hurls rocks). */
+const BOSS_ROAR_EVERY = 3.4;
 
 type Mode = 'walk' | 'windup' | 'charge' | 'spent';
 
@@ -125,9 +127,9 @@ export class Enemies {
 
   constructor(private parent: THREE.Object3D) {
     const prewarm: [EnemyKind, number][] = [
-      ['grunt', 30],
+      ['grunt', 60],
       ['brute', 10],
-      ['dasher', 12],
+      ['dasher', 16],
       ['bearer', 6],
       ['boss', 1],
       ['barrel', 10],
@@ -267,7 +269,7 @@ export class Enemies {
         break;
       case 'boss':
         // A roar every few seconds once it is on the move.
-        if (e.walking && e.mode === 'walk' && e.modeT > 4.5) this.setMode(e, 'windup');
+        if (e.walking && e.mode === 'walk' && e.modeT > BOSS_ROAR_EVERY) this.setMode(e, 'windup');
         else if (e.mode === 'windup' && e.modeT > 0.8) this.setMode(e, 'walk');
         break;
     }

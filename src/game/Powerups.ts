@@ -7,7 +7,7 @@ export const POWER_KINDS: PowerKind[] = ['rapid', 'damage', 'shield'];
 export const POWER_SPECS: Record<PowerKind, { name: string; short: string; color: number; css: string; duration: number }> = {
   rapid: { name: 'RAPID FIRE', short: 'RAPID', color: 0xffd23f, css: '#ffd23f', duration: 6 },
   damage: { name: 'DOUBLE DAMAGE', short: '×2 DMG', color: 0xff6a2b, css: '#ff6a2b', duration: 6 },
-  shield: { name: 'SHIELD', short: 'SHIELD', color: 0x4d9cff, css: '#4d9cff', duration: 8 },
+  shield: { name: 'SHIELD', short: 'SHIELD', color: 0x4d9cff, css: '#4d9cff', duration: 15 },
 };
 
 const DESPAWN_Z = 6;

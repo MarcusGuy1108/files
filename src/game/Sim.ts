@@ -6,6 +6,7 @@ import { METEOR_RADIUS } from './Hazards';
 import { TRACK_HALF } from './Track';
 import type { LevelEventKind } from './events';
 import type { GameEvent } from './events';
+import type { Squad } from './Squad';
 
 /** run: scrolling. arena: stopped, boss walks in. won: boss down. lost: every squad wiped. */
 export type Phase = 'run' | 'arena' | 'won' | 'lost';
@@ -17,6 +18,11 @@ const BOSS_GAP = 26;
 export const MAX_STREAMS = 8;
 const WIN_DELAY = 1.3;
 const LOSE_DELAY = 1.1;
+/** Size of one squad member, for deciding who stands inside a meteor's ring. */
+const MEMBER_RADIUS = 0.2;
+/** Most of a squad one meteor or boss rock can take. */
+const METEOR_MAX_SHARE = 0.2;
+const BOSS_ROCK_MAX_SHARE = 0.3;
 
 /**
  * The authoritative game rules: scrolling, spawning, firing, collisions, rewards.
@@ -36,7 +42,7 @@ export class Sim {
   private scheduled: { at: number; kind: LevelEventKind; span: number }[] = [];
   private meteorUntil = 0;
   private meteorTimer = 0;
-  private meteors: { x: number; z: number; t: number }[] = [];
+  private meteors: { x: number; z: number; t: number; maxShare: number }[] = [];
   private bossRoaring = false;
   /** Overdrive event: faster scrolling and firing until this distance. */
   private overdriveUntil = 0;
@@ -78,7 +84,7 @@ export class Sim {
       p.fireTimer = 0;
       p.pw = noPowers();
       // Spawn protection: a short shield so nothing can wipe a fresh squad instantly.
-      p.pw.shield = 2.5;
+      p.pw.shield = 3;
       p.wiped = false;
     }
     this.spawnEvents();
@@ -115,8 +121,9 @@ export class Sim {
     w.fx.update(dt, dz);
     w.hazards.update(dt, dz, time);
     this.spawnEvents();
-    if (this.phase === 'run') this.runLevelEvents(dt, dz);
-    this.bossSummons();
+    if (this.phase === 'run') this.runLevelEvents(dt);
+    this.bossAttacks();
+    if (this.phase === 'run' || this.phase === 'arena') this.updateMeteors(dt, dz);
 
     const fighting = this.phase === 'run' || this.phase === 'arena';
     for (const p of this.players) {
@@ -184,11 +191,11 @@ export class Sim {
     const progress = Math.min(1, this.distance / this.plan.length);
     const expected = (10 + 4 * L) * (1 + 2 * progress) * Math.max(1, this.players.length);
     const ratio = total / expected;
-    return ratio > 1 ? Math.min(8, Math.pow(ratio, 0.8)) : 1;
+    return ratio > 1 ? Math.min(12, Math.pow(ratio, 0.9)) : 1;
   }
 
   /** Start scheduled events when the squad reaches them, and run any in progress. */
-  private runLevelEvents(dt: number, dz: number): void {
+  private runLevelEvents(dt: number): void {
     while (this.scheduled.length && this.distance >= this.scheduled[0].at) {
       const ev = this.scheduled.shift()!;
       this.emit({ k: 'event', kind: ev.kind });
@@ -216,7 +223,7 @@ export class Sim {
         // Purely visual: the screens dim (see Game).
       } else {
         // Gem rush: a snaking trail of gems just ahead.
-        for (let i = 0; i < 14; i++) this.w.gems.spawn(Math.sin(i * 0.6) * (TRACK_HALF - 1), -28 - i * 2.2);
+        for (let i = 0; i < 8; i++) this.w.gems.spawn(Math.sin(i * 0.6) * (TRACK_HALF - 1), -28 - i * 2.6);
       }
     }
 
@@ -224,32 +231,53 @@ export class Sim {
     if (this.distance < this.meteorUntil && alive.length) {
       this.meteorTimer -= dt;
       if (this.meteorTimer <= 0) {
-        this.meteorTimer = Math.max(0.42, 0.75 - 0.03 * this.plan.level);
+        this.meteorTimer = Math.max(0.5, 0.85 - 0.03 * this.plan.level);
         // Aim near a squad so standing still isn't safe.
-        const target = alive[Math.floor(Math.random() * alive.length)].squad;
-        const lim = TRACK_HALF - 0.6;
-        const x = Math.max(-lim, Math.min(lim, target.x + (Math.random() - 0.5) * 2.6));
-        const t = 1.5;
-        const z = target.z - this.plan.speed * t; // scrolls to the squad's line as it lands
-        this.meteors.push({ x, z, t });
-        this.w.hazards.spawn(x, z, t);
-        this.emit({ k: 'meteor', x, z, t });
+        this.strike(alive[Math.floor(Math.random() * alive.length)].squad, 2.6, 1.5);
       }
     }
+  }
 
+  /** A meteor or boss rock that lands near `target` in `t` seconds, marked by a ring. */
+  private strike(target: Squad, spread: number, t: number, maxShare = METEOR_MAX_SHARE): void {
+    const lim = TRACK_HALF - 0.6;
+    const x = Math.max(-lim, Math.min(lim, target.x + (Math.random() - 0.5) * spread));
+    // The ring scrolls with the road, so it reaches the squad's line just as it lands.
+    const z = target.z - this.speed * t;
+    this.meteors.push({ x, z, t, maxShare });
+    this.w.hazards.spawn(x, z, t);
+    this.emit({ k: 'meteor', x, z, t });
+  }
+
+  /**
+   * Meteors land: only members standing inside the ring are hit, and the squad loses the
+   * same share of its members (on big squads each figure stands for many).
+   */
+  private updateMeteors(dt: number, dz: number): void {
+    const alive = this.players.filter((p) => !p.wiped);
     for (let i = this.meteors.length - 1; i >= 0; i--) {
       const m = this.meteors[i];
       m.t -= dt;
       m.z += dz;
       if (m.t > 0) continue;
       this.meteors.splice(i, 1);
-      const hit = alive.find(
-        (p) => Math.abs(p.squad.x - m.x) < METEOR_RADIUS + p.squad.radius * 0.4 && Math.abs(m.z - p.squad.z) < 1.5 + p.squad.radius * 0.5,
-      );
+      let hit: Player | null = null;
       let loss = 0;
-      if (hit && hit.pw.shield <= 0) {
-        loss = Math.min(hit.squad.count, 2 + this.plan.level);
-        hit.squad.add(-loss);
+      for (const p of alive) {
+        const sq = p.squad;
+        const vis = sq.visible;
+        let under = 0;
+        for (let k = 0; k < vis; k++) {
+          if (Math.hypot(sq.memberX(k) - m.x, sq.memberZ(k) - m.z) < METEOR_RADIUS + MEMBER_RADIUS) under++;
+        }
+        if (!under) continue;
+        hit = p;
+        if (p.pw.shield <= 0) {
+          const share = Math.min(m.maxShare, under / vis);
+          loss = Math.min(sq.count, Math.max(1, Math.round(sq.count * share)));
+          sq.add(-loss);
+        }
+        break;
       }
       this.emit({ k: 'boom', x: m.x, z: m.z, p: hit ? hit.idx : -1, loss });
     }
@@ -262,7 +290,7 @@ export class Sim {
     for (let i = 0; i < n; i++) {
       const dasher = L >= 3 && Math.random() < 0.4;
       const x = -TRACK_HALF + 0.6 + Math.random() * (TRACK_HALF * 2 - 1.2);
-      const z = -16 - Math.random() * 10;
+      const z = -26 - Math.random() * 12;
       const hp = Math.round((dasher ? 2 + Math.random() * 2 : 3 + Math.random() * 4) * this.plan.hpScale);
       this.w.enemies.spawn(dasher ? 'dasher' : 'grunt', x, z, Math.round(hp * this.toughness()));
     }
@@ -278,20 +306,27 @@ export class Sim {
     }
   }
 
-  /** Each boss roar calls in minions: two at first, more on later levels. */
-  private bossSummons(): void {
+  /** Each boss roar calls in minions and hurls rocks at every squad. */
+  private bossAttacks(): void {
     const b = this.boss;
     if (!b) return;
     const roaring = this.w.enemies.roaring(b);
     if (roaring && !this.bossRoaring) {
       const p = b.group.position;
-      const n = Math.min(6, 2 + Math.floor(this.plan.level / 5));
+      const L = this.plan.level;
+      const n = Math.min(10, 3 + Math.floor(L / 3));
       for (let k = 0; k < n; k++) {
         const off = (k - (n - 1) / 2) * (5.2 / Math.max(1, n - 1));
         const x = Math.max(-TRACK_HALF + 0.6, Math.min(TRACK_HALF - 0.6, p.x + off));
         this.w.enemies.spawn('grunt', x, p.z + 2.5, Math.round(5 * this.plan.hpScale * this.toughness()));
       }
       this.emit({ k: 'summon', x: p.x, z: p.z });
+      // Rocks from level 3: dodge the rings or lose a chunk of the squad.
+      const rocks = L < 3 ? 0 : Math.min(4, 1 + Math.floor((L - 3) / 3));
+      for (const pl of this.players) {
+        if (pl.wiped) continue;
+        for (let k = 0; k < rocks; k++) this.strike(pl.squad, 3.2, 1.3 + k * 0.35, BOSS_ROCK_MAX_SHARE);
+      }
     }
     this.bossRoaring = roaring;
   }
@@ -453,7 +488,9 @@ export class Sim {
       if (hitP.pw.shield > 0) {
         this.emit({ k: 'block', p: hitP.idx, x: pos.x, z: pos.z });
       } else {
-        const loss = Math.ceil(e.hp + e.shieldHp);
+        // One enemy can't wipe a big squad on its own: at most half of it (scaled
+        // enemies on big squads would otherwise one-shot it).
+        const loss = Math.min(Math.ceil(e.hp + e.shieldHp), Math.max(60, Math.ceil(sq.count * 0.5)));
         sq.add(-loss);
         this.emit({ k: 'hurt', p: hitP.idx, loss, x: pos.x, z: pos.z, kind: e.kind });
       }

@@ -16,13 +16,16 @@ Lead a neon squad down the track. Your squad fires on its own; you steer.
 
 - **Gates:** walk through a green **+N** gate to add members; a red **−N** gate removes them. Shooting a gate raises its number, so a red gate can turn green. From level 2, red **−%** gates take a share of your squad; shooting them shrinks the loss.
 - **Big squads face tougher enemies:** once your squad is bigger than expected for the level, enemy, obstacle and boss health scale up to match, so a huge squad still has a fight.
-- **Safe start:** each level opens with a short shield and a gap before the first wave.
+- **Safe start:** each level opens with a 3-second shield, a gap before the first wave, and two lighter waves (no brutes or shield bearers) while your squad grows.
+- **New layout every attempt:** levels are laid out fresh each time you play, so you can't memorise them.
+- **Swarms:** from level 2, every wave is followed by a pack of weak grunts.
+- **No one-shots:** a single enemy can take at most half of a big squad (over 120 members).
 - **Enemies:** the number over each enemy is its health. If one reaches your squad, you lose that many members.
   - **Grunts** (red) and **brutes** (orange) walk straight at you.
   - **Dashers** (purple, from level 3) are fast and home in on your squad.
   - **Shield bearers** (blue, from level 4) carry a shield with its own number. It soaks up bullets and protects the enemies behind it until it breaks.
-- **Power-ups:** walk through one to pick it up. **Rapid fire** doubles your fire rate and **double damage** doubles your damage, each for 6 s. **Shield** stops enemies taking members for 8 s.
-- **Boss:** every level ends with one. Beat it to unlock the next level. If it reaches you, it trades its health for your members.
+- **Power-ups:** walk through one to pick it up. **Rapid fire** doubles your fire rate and **double damage** doubles your damage, each for 6 s. **Shield** stops enemies and meteors taking members for 15 s.
+- **Boss:** every level ends with one. Beat it to unlock the next level. Every few seconds it roars, summoning minions and, from level 3, hurling rocks at each squad (dodge the rings). If it reaches you, it trades its health for your members.
 - **Gems:** enemies sometimes drop gems that you must walk over to collect. There are also gems on the track, and a bonus for beating the boss and clearing the level. You keep the gems you picked up even if your squad is wiped out.
 - **Upgrades:** spend gems on starting **squad size**, **gun power** and **fire rate**. Prices rise with each level you buy.
 - **Sound:** synthwave music and sound effects, all generated in the browser. You can switch music and sound effects off from the menu or the pause screen.
@@ -38,7 +41,7 @@ Lead a neon squad down the track. Your squad fires on its own; you steer.
   - **Gem Rush:** a trail of gems.
   - **Ambush:** enemies drop in right in front of you.
   - **Stampede:** a wide charge of weak grunts.
-  - **Meteor Shower:** dodge the red target rings.
+  - **Meteor Shower:** dodge the red target rings. Only members inside a ring are hit, and the squad loses that share of its members (up to 20% per meteor).
   - **Double Up:** a ×2 gate opposite a negative one.
   - **Overdrive:** faster running and firing.
   - **Blackout:** the lights go out and you watch for glowing eyes.
@@ -97,7 +100,7 @@ src/game/Sim.ts         the game rules: scrolling, spawning, firing, shields, co
 src/game/Replica.ts     co-op guest: mirrors host snapshots with smoothing and cosmetic bullets
 src/game/World.ts       everything on the track, plus the two players
 src/game/events.ts      events the rules emit (kills, gates, gems…) → effects, sound, rewards, network
-src/game/Level.ts       seeded level layout (waves, rushes, gates, gems, power-ups) + difficulty per level
+src/game/Level.ts       random level layout (waves, rushes, gates, gems, power-ups) + difficulty per level
 src/game/Squad.ts       a squad: formation, steering, count label, shield bubble
 src/game/Enemies.ts     grunts, brutes, dashers, shield bearers and the boss
 src/game/Gates.ts       +N / −N gates that rise when shot

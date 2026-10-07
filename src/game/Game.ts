@@ -77,6 +77,8 @@ export class Game {
   private acc = 0;
   private lastFrame = 0;
   private frameEma = 16;
+  /** Development only: simulation speed multiplier for automated balance runs. */
+  testSpeed = 1;
   private perfTimer = 0;
   private tmpV = new THREE.Vector3();
 
@@ -298,7 +300,8 @@ export class Game {
     if (this.mode === 'host' && !coop) {
       this.ui.toast('Your friend is not connected, so this level is solo.');
     }
-    const plan = buildLevel(this.save.level, coop);
+    // A new layout every attempt, so levels can't be memorised.
+    const plan = buildLevel(this.save.level, coop, (Math.random() * 0x7fffffff) | 0);
     this.w.setCoop(coop);
     this.w.setLocalPlayer(0);
     this.w.players[0].stats = statsOf(this.save);
@@ -712,7 +715,8 @@ export class Game {
     }
 
     // Fixed-step simulation keeps gameplay identical at 30, 60 or 120 Hz.
-    this.acc += dt;
+    // (Automated balance tests can fast-forward in development builds.)
+    this.acc += import.meta.env.DEV ? dt * this.testSpeed : dt;
     while (this.acc >= STEP) {
       this.step(STEP);
       this.acc -= STEP;
