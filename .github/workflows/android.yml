@@ -70,8 +70,11 @@ jobs:
           ANDROID_KEYSTORE_PASSWORD: ${{ secrets.ANDROID_KEYSTORE_PASSWORD }}
           # Play needs a higher version code for every upload.
           VERSION_CODE: ${{ github.run_number }}
-          VERSION_NAME: 1.0.${{ github.run_number }}
-        run: ./gradlew bundleRelease --no-daemon
+        run: |
+          # Version name shown in the Play Store: package.json's "0.5" plus the build, e.g. 0.5.12.
+          export VERSION_NAME="$(node -p "require('../package.json').version.split('.').slice(0, 2).join('.')").${GITHUB_RUN_NUMBER}"
+          echo "Version $VERSION_NAME ($VERSION_CODE)"
+          ./gradlew bundleRelease --no-daemon
 
       - uses: actions/upload-artifact@v4
         if: steps.secret.outputs.ok == 'true'

@@ -1161,3 +1161,20 @@ input {
 #nowebgl[hidden] {
   display: none;
 }
+
+/* Version number in the bottom corner, on the menus only (not during play). */
+#app-version {
+  position: fixed;
+  right: calc(10px + env(safe-area-inset-right));
+  bottom: calc(6px + env(safe-area-inset-bottom));
+  z-index: 5;
+  font: 700 12px/1 'Nunito', system-ui, sans-serif;
+  letter-spacing: 0.04em;
+  color: rgba(255, 255, 255, 0.55);
+  text-shadow: 0 1px 0 var(--ink);
+  pointer-events: none;
+}
+
+body:has(#hud:not(.hidden)) #app-version {
+  display: none;
+}

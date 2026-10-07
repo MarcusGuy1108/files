@@ -9,6 +9,7 @@ import { isWebGLAvailable } from './render/Scene';
 import { initNative } from './native';
 
 const canvas = document.getElementById('game') as HTMLCanvasElement;
+document.getElementById('app-version')!.textContent = `v${__APP_VERSION__}`;
 
 if (!isWebGLAvailable()) {
   document.getElementById('ui')!.hidden = true;
