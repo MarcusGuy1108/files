@@ -280,8 +280,8 @@ export function buildLevel(level: number, coop = false, seed = level * 9973 + 17
     bossHp: Math.round(650 * (1 + 0.6 * L) * (coop ? 1.7 : 1)),
     gateCost: 1 + 0.08 * L,
     hpScale,
-    bossReward: 3 + L,
-    clearBonus: 4 + 2 * L,
+    bossReward: 3 + Math.floor(L / 3),
+    clearBonus: 5 + Math.floor(L / 2),
     events,
   };
 }

@@ -15,7 +15,7 @@ Lead a neon squad down the track. Your squad fires on its own; you steer.
 | Start / retry   | Enter or Space    | Tap                        |
 
 - **Gates:** walk through a green **+N** gate to add members; a red **−N** gate removes them. Shooting a gate raises its number, so a red gate can turn green. From level 2, red **−%** gates take a share of your squad; shooting them shrinks the loss.
-- **Big squads face tougher enemies:** once your squad is bigger than expected for the level, enemy, obstacle and boss health scale up to match, so a huge squad still has a fight.
+- **Strong squads face tougher enemies:** once your firepower (members × gun power × fire rate) is above what's expected for the level, enemy, obstacle and boss health scale up to match, so big squads and heavy upgrades still get a fight.
 - **Safe start:** each level opens with a 3-second shield, a gap before the first wave, and two lighter waves (no brutes or shield bearers) while your squad grows.
 - **New layout every attempt:** levels are laid out fresh each time you play, so you can't memorise them.
 - **Swarms:** from level 2, every wave is followed by a pack of weak grunts.
@@ -26,7 +26,7 @@ Lead a neon squad down the track. Your squad fires on its own; you steer.
   - **Shield bearers** (blue, from level 4) carry a shield with its own number. It soaks up bullets and protects the enemies behind it until it breaks.
 - **Power-ups:** walk through one to pick it up. **Rapid fire** doubles your fire rate and **double damage** doubles your damage, each for 6 s. **Shield** stops enemies and meteors taking members for 15 s.
 - **Boss:** every level ends with one. Beat it to unlock the next level. Every few seconds it roars, summoning minions and, from level 3, hurling rocks at each squad (dodge the rings). If it reaches you, it trades its health for your members.
-- **Gems:** enemies sometimes drop gems that you must walk over to collect. There are also gems on the track, and a bonus for beating the boss and clearing the level. You keep the gems you picked up even if your squad is wiped out.
+- **Gems:** enemies sometimes drop gems that you must walk over to collect. There are also gems on the track, and a bonus for beating the boss and clearing the level. Enemies can only drop a handful of gems per level, however many there are. You keep the gems you picked up even if your squad is wiped out.
 - **Upgrades:** spend gems on starting **squad size**, **gun power** and **fire rate**. Prices rise with each level you buy.
 - **Sound:** synthwave music and sound effects, all generated in the browser. You can switch music and sound effects off from the menu or the pause screen.
 

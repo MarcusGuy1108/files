@@ -46,6 +46,8 @@ export class Sim {
   private bossRoaring = false;
   /** Overdrive event: faster scrolling and firing until this distance. */
   private overdriveUntil = 0;
+  /** Gems enemies can still drop this level. */
+  private dropsLeft = 0;
   /** Called once per volley, for the shot sound. */
   onVolley: ((player: number) => void) | null = null;
 
@@ -75,6 +77,7 @@ export class Sim {
     this.meteorUntil = 0;
     this.bossRoaring = false;
     this.overdriveUntil = 0;
+    this.dropsLeft = 6 + Math.floor(plan.level / 3);
     this.boss = null;
     this.result = null;
     this.setPhase('run');
@@ -181,17 +184,20 @@ export class Sim {
   }
 
   /**
-   * Keeps big squads challenged: when the squads are stronger than expected at this point
-   * of the level, newly spawned enemies, obstacles and the boss get proportionally tougher.
+   * Keeps strong squads challenged: when the squads' firepower (members × gun power × fire
+   * rate) is above what's expected at this point of the level, newly spawned enemies,
+   * obstacles and the boss get proportionally tougher. Upgrades count, not just numbers.
    */
   private toughness(): number {
     const alive = this.players.filter((p) => !p.wiped);
-    const total = alive.reduce((sum, p) => sum + p.squad.count, 0);
+    const firepower = alive.reduce((sum, p) => sum + p.squad.count * p.stats.power * p.stats.rate, 0);
     const L = this.plan.level - 1;
     const progress = Math.min(1, this.distance / this.plan.length);
-    const expected = (10 + 4 * L) * (1 + 2 * progress) * Math.max(1, this.players.length);
-    const ratio = total / expected;
-    return ratio > 1 ? Math.min(12, Math.pow(ratio, 0.9)) : 1;
+    const count = (10 + 4 * L) * (1 + 2 * progress);
+    // Roughly one upgrade every two levels.
+    const expected = count * (1 + 0.05 * L) * (3 + 0.07 * L) * Math.max(1, this.players.length);
+    const ratio = firepower / expected;
+    return ratio > 1 ? Math.min(25, Math.pow(ratio, 0.9)) : 1;
   }
 
   /** Start scheduled events when the squad reaches them, and run any in progress. */
@@ -409,9 +415,12 @@ export class Sim {
       for (const pl of this.players) this.emit({ k: 'reward', p: pl.idx, n: this.plan.bossReward });
       return;
     }
-    // Gems drop where the enemy fell; you still have to walk over them.
-    if (Math.random() < spec.drop.chance) {
-      for (let k = 0; k < spec.drop.count; k++) w.gems.spawn(p.x + (k - (spec.drop.count - 1) / 2) * 0.7, p.z);
+    // Gems drop where the enemy fell; you still have to walk over them. Each level only
+    // has so many to give, however many enemies there are.
+    if (this.dropsLeft > 0 && Math.random() < spec.drop.chance) {
+      const n = Math.min(spec.drop.count, this.dropsLeft);
+      this.dropsLeft -= n;
+      for (let k = 0; k < n; k++) w.gems.spawn(p.x + (k - (n - 1) / 2) * 0.7, p.z);
     }
     // Crates sometimes hold a power-up.
     if (e.kind === 'crate' && Math.random() < 0.3) {
