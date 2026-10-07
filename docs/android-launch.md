@@ -8,7 +8,7 @@ The game is wrapped as an Android app with [Capacitor](https://capacitorjs.com).
 - [x] Android app project (`android/`), targeting Android 16 (API 36)
 - [x] App icon, loading screen, back button, sound pauses when you switch apps
 - [x] Automatic signed builds on GitHub (`.github/workflows/android.yml`)
-- [x] Privacy policy: https://marcusguy1108.github.io/neontest/privacy.html
+- [x] Privacy policy: https://marcusguy1108.github.io/files/privacy.html
 - [x] Store images in `store/`: icon, feature graphic, 5 phone screenshots
 - [ ] Add the signing password to GitHub (step 1)
 - [ ] Create the app in Play Console and fill in the forms (steps 3–4)
@@ -56,7 +56,7 @@ These are suggested answers based on what the game does today, with no ads, no p
 
 | Form | Answer |
 | --- | --- |
-| Privacy policy | `https://marcusguy1108.github.io/neontest/privacy.html` |
+| Privacy policy | `https://marcusguy1108.github.io/files/privacy.html` |
 | App access | All functionality is available without special access |
 | Ads | No, the app doesn't contain ads (update this when ads are added) |
 | Content rating | Category: Game. Violence: the player shoots cartoon robots and monsters; no blood, no realistic violence. Answer No to everything else (no sex, drugs, gambling or user-generated content). Players can share a typed name with a friend in co-op, but there's no chat. |

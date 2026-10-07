@@ -31,7 +31,7 @@ export class NetError extends Error {
 }
 
 /** The standalone copy of the game (GitHub Pages), where co-op connects peer-to-peer. */
-export const STANDALONE_URL = 'https://marcusguy1108.github.io/neontest/';
+export const STANDALONE_URL = 'https://marcusguy1108.github.io/files/';
 
 /** claude.ai refused the room: usually its sign-in can't reach this embedded page. */
 class RoomUnavailable extends NetError {}
