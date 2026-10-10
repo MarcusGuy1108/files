@@ -108,7 +108,7 @@ export class Track {
     postGeo.translate(0, 4, 0);
     const beamGeo = new THREE.BoxGeometry(span + 0.2, 0.16, 0.16);
     for (let i = 0; i < ARCH_COUNT; i++) {
-      const mat = new THREE.MeshBasicMaterial({ color: ARCH_COLORS[i % ARCH_COLORS.length] });
+      const mat = new THREE.MeshBasicMaterial({ color: ARCH_COLORS[i % ARCH_COLORS.length], transparent: true });
       const g = new THREE.Group();
       for (const s of [-1, 1]) {
         const post = new THREE.Mesh(postGeo, mat);
@@ -154,6 +154,10 @@ export class Track {
         a.group.position.z -= ARCH_SPACING * ARCH_COUNT;
         a.hue++; // a new colour each time it comes round
       }
+      // Fade out as it comes overhead, so the beam never sweeps across the top of a tall screen.
+      const z = a.group.position.z;
+      a.mat.opacity = Math.max(0, Math.min(1, (-z - 6) / 14));
+      a.group.visible = a.mat.opacity > 0.01;
     }
   }
 }

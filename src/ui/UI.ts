@@ -1,8 +1,11 @@
-import { UPGRADES, UPGRADE_IDS, upgradeCost, type SaveData, type UpgradeId } from '../game/Progress';
+import { LIFE_GEM_COST, MAX_LIVES, UPGRADES, UPGRADE_IDS, upgradeCost, type SaveData, type UpgradeId } from '../game/Progress';
+import { rewardedReady } from '../ads';
+import { ENEMY_THEMES, SQUAD_COLOURS } from '../game/Looks';
+import { DrawEditor } from './DrawEditor';
 import { POWER_KINDS, POWER_SPECS, type PowerKind } from '../game/Powerups';
 import { splashArt } from './splashArt';
 
-export type Screen = 'menu' | 'shop' | 'coop' | 'playing' | 'paused' | 'result';
+export type Screen = 'menu' | 'shop' | 'coop' | 'playing' | 'paused' | 'result' | 'lives' | 'style' | 'draw';
 
 export interface UIHandlers {
   play: () => void;
@@ -21,6 +24,32 @@ export interface UIHandlers {
   /** The splash screen was dismissed (a user gesture: safe to start audio). */
   splashDone: () => void;
   setName: (name: string) => void;
+  buyLife: () => void;
+  adLife: () => void;
+  livesBack: () => void;
+  style: () => void;
+  styleBack: () => void;
+  squadColour: (index: number) => void;
+  enemyTheme: (index: number) => void;
+  draw: () => void;
+  drawSave: (dataUrl: string) => void;
+  drawCancel: () => void;
+  drawReset: () => void;
+}
+
+/** Standard enemy colours, for the theme previews. */
+const CLASSIC = { grunt: 0xff3b4e, brute: 0xff7a1a, dasher: 0xb45cff, boss: 0xff2b8a };
+
+const hex = (n: number) => `#${n.toString(16).padStart(6, '0')}`;
+
+/** The standard squad member, for the character preview. */
+const STANDARD_FIGURE = (c: string) =>
+  `<svg viewBox="0 0 40 40"><rect x="14" y="8" width="12" height="26" rx="6" fill="${c}" stroke="#140728" stroke-width="2.5"/><rect x="22" y="17" width="12" height="4" rx="1" fill="#ffd23f" stroke="#140728" stroke-width="1.5"/></svg>`;
+
+/** "12:05" from milliseconds. */
+function mmss(ms: number): string {
+  const t = Math.max(0, Math.ceil(ms / 1000));
+  return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, '0')}`;
 }
 
 function $<T extends HTMLElement = HTMLElement>(id: string): T {
@@ -57,7 +86,11 @@ export class UI {
     coop: $('screen-coop'),
     paused: $('screen-pause'),
     result: $('screen-result'),
+    lives: $('screen-lives'),
+    style: $('screen-style'),
+    draw: $('screen-draw'),
   };
+  readonly drawEditor: DrawEditor;
   private hudLevel = $('hud-level');
   private hudProgress = $('hud-progress');
   private hudGems = $('hud-gems');
@@ -90,6 +123,24 @@ export class UI {
     on('btn-coop-start', h.startCoop);
     on('btn-coop-back', h.menu);
     on('btn-copy', () => this.copyCode());
+    on('btn-life-gems', h.buyLife);
+    on('btn-life-ad', h.adLife);
+    on('btn-lives-back', h.livesBack);
+    on('btn-style', h.style);
+    on('btn-style-back', h.styleBack);
+    on('btn-draw', h.draw);
+    on('btn-draw-reset', h.drawReset);
+    on('btn-draw-cancel', h.drawCancel);
+    on('btn-draw-save', () => h.drawSave(this.drawEditor.export()));
+    this.drawEditor = new DrawEditor();
+    $('squad-swatches').addEventListener('click', (e) => {
+      const b = (e.target as HTMLElement).closest<HTMLElement>('.swatch');
+      if (b) h.squadColour(Number(b.dataset.i));
+    });
+    $('enemy-swatches').addEventListener('click', (e) => {
+      const b = (e.target as HTMLElement).closest<HTMLElement>('.swatch');
+      if (b) h.enemyTheme(Number(b.dataset.i));
+    });
     $('join-form').addEventListener('submit', (e) => {
       e.preventDefault();
       h.join($<HTMLInputElement>('join-code').value);
@@ -105,7 +156,7 @@ export class UI {
     });
     // Keep presses on overlay controls from also counting as gameplay taps or drags.
     $('ui').addEventListener('pointerdown', (e) => {
-      if ((e.target as HTMLElement).closest('button, input, form, label, #splash')) e.stopPropagation();
+      if ((e.target as HTMLElement).closest('button, input, form, label, canvas, #splash')) e.stopPropagation();
     });
 
     // Splash: art sized to the screen; tap anywhere (or press a key) to continue.
@@ -140,6 +191,9 @@ export class UI {
       coop: '',
       paused: 'btn-resume',
       result: 'btn-next',
+      lives: 'btn-life-gems',
+      style: 'btn-style-back',
+      draw: '',
       playing: '',
     }[screen];
     // Skip the focus ring on touch devices.
@@ -153,6 +207,51 @@ export class UI {
     $('menu-theme').textContent = themeName;
     $('menu-gems').textContent = String(save.gems);
     this.setToggles(save.music, save.sfx);
+  }
+
+  /** Lives counter on the menu, with a countdown to the next free life. */
+  setLives(save: SaveData, now = Date.now()): void {
+    $('menu-lives').textContent = `${save.lives}/${MAX_LIVES}`;
+    $('menu-lives-timer').textContent = save.lives < MAX_LIVES && save.nextLifeAt ? `+1 in ${mmss(save.nextLifeAt - now)}` : '';
+    $('menu-lives-chip').classList.toggle('empty', save.lives <= 0);
+    if (!this.screens.lives.classList.contains('hidden')) this.renderLives(save, now);
+  }
+
+  /** The customise screen: colour swatches and the character preview. */
+  renderStyle(save: SaveData): void {
+    const { squad, enemies, drawing } = save.style;
+    $('squad-swatches').innerHTML = SQUAD_COLOURS.map(
+      (c, i) =>
+        `<button class="swatch" role="radio" data-i="${i}" aria-label="${c.name}" aria-checked="${i === squad}" style="--sw:${hex(c.look.body)}"></button>`,
+    ).join('');
+    $('enemy-swatches').innerHTML = ENEMY_THEMES.map((t, i) => {
+      // Show each theme as a stripe of its grunt, brute, dasher and boss colours.
+      const cols = (['grunt', 'brute', 'dasher', 'boss'] as const).map((k) => hex(t.colours[k] ?? CLASSIC[k]));
+      const bg = `linear-gradient(90deg, ${cols.map((c, k) => `${c} ${k * 25}% ${(k + 1) * 25}%`).join(', ')})`;
+      return `<button class="swatch theme" role="radio" data-i="${i}" aria-checked="${i === enemies}" style="--sw:${bg}">${t.name}</button>`;
+    }).join('');
+    $('char-thumb').innerHTML = drawing
+      ? `<img src="${drawing}" alt="" />`
+      : STANDARD_FIGURE(hex(SQUAD_COLOURS[squad]?.look.body ?? 0x3fd2ff));
+    $('btn-draw').textContent = drawing ? 'EDIT DRAWING' : 'DRAW YOUR OWN';
+    $('btn-draw-reset').classList.toggle('hidden', !drawing);
+  }
+
+  showLives(save: SaveData): void {
+    this.renderLives(save);
+    this.show('lives');
+  }
+
+  private renderLives(save: SaveData, now = Date.now()): void {
+    $('lives-hearts').innerHTML = Array.from(
+      { length: MAX_LIVES },
+      (_, k) => `<svg class="${k < save.lives ? '' : 'lost'}"><use href="#i-heart" /></svg>`,
+    ).join('');
+    $('lives-sub').textContent =
+      save.lives > 0 ? 'You have a life. Back to the fight!' : `Next free life in ${mmss(save.nextLifeAt - now)}`;
+    $('life-cost').textContent = String(LIFE_GEM_COST);
+    $<HTMLButtonElement>('btn-life-gems').disabled = save.gems < LIFE_GEM_COST || save.lives >= MAX_LIVES;
+    $<HTMLButtonElement>('btn-life-ad').disabled = !rewardedReady() || save.lives >= MAX_LIVES;
   }
 
   setToggles(music: boolean, sfx: boolean): void {
@@ -270,7 +369,10 @@ export class UI {
   }
 
   /** `coop`: null in solo, otherwise this player's role. */
-  showResult(won: boolean, level: number, progress: number, gems: number, coop: 'host' | 'guest' | null): void {
+  showResult(won: boolean, level: number, progress: number, gems: number, coop: 'host' | 'guest' | null, livesLeft: number | null = null): void {
+    const note = $('result-lives');
+    note.classList.toggle('hidden', livesLeft === null);
+    if (livesLeft !== null) note.querySelector('span')!.textContent = `Lost a life · ${livesLeft} left`;
     const title = $('result-title');
     title.textContent = won ? `LEVEL ${level} CLEARED!` : coop ? 'SQUADS LOST' : 'SQUAD LOST';
     title.classList.toggle('won', won);

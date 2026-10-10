@@ -3,7 +3,9 @@ import { GameScene } from '../render/Scene';
 import { Input, type Action } from '../input/Input';
 import { UI } from '../ui/UI';
 import { AudioEngine } from '../audio/Audio';
-import { cleanName, loadSave, persist, statsOf, upgradeCost, UPGRADES, type PlayerStats, type UpgradeId } from './Progress';
+import { LIFE_GEM_COST, MAX_LIVES, addLife, cleanName, loadSave, persist, refreshLives, spendLife, statsOf, upgradeCost, UPGRADES, type PlayerStats, type SaveData, type UpgradeId } from './Progress';
+import { rewardedReady, showRewarded } from '../ads';
+import { PARTNER_DEFAULT, SQUAD_COLOURS, enemyTheme, squadLook } from './Looks';
 import { TRACK_HALF } from './Track';
 import { World } from './World';
 import { Sim } from './Sim';
@@ -27,9 +29,9 @@ const LEVEL_EVENT_INFO: Record<LevelEventKind, { title: string; sub: string; css
   blackout: { title: 'BLACKOUT', sub: 'Watch for glowing eyes', css: '#c58bff', color: 0x14062a, seconds: 6.5 },
 };
 import { STANDALONE_URL, detectVia, makeCode, normalizeCode, openChannel, NetError, type Channel } from '../net/Channel';
-import { encodeEvent, encodeSnap, type GuestMsg, type HostMsg } from '../net/protocol';
+import { PEER_MAX_BYTES, ROOM_MAX_BYTES, encodeEvent, encodeSnap, type GuestMsg, type HostMsg } from '../net/protocol';
 
-type State = 'menu' | 'shop' | 'coop' | 'playing' | 'paused' | 'result';
+type State = 'menu' | 'shop' | 'coop' | 'playing' | 'paused' | 'result' | 'lives' | 'style' | 'draw';
 /** solo: just you. host: you run the game for both. guest: you mirror the host's game. */
 type Mode = 'solo' | 'host' | 'guest';
 
@@ -73,6 +75,14 @@ export class Game {
   private guestMsg: GuestMsg | null = null;
   private hostName = '';
   private shopReturn: 'menu' | 'result' = 'menu';
+  private livesReturn: State = 'menu';
+  /** A life was used for the current run (given back on a win). */
+  private lifeSpent = false;
+  private livesTick = 0;
+  private skinTex: THREE.Texture | null = null;
+  private skinUrl = '';
+  /** The co-op partner's squad colour, once they've told us. */
+  private partnerColour: number | null = null;
 
   private acc = 0;
   private lastFrame = 0;
@@ -109,6 +119,20 @@ export class Game {
       toggleSfx: () => this.toggle('sfx'),
       // The tap that dismisses the splash also unlocks audio, so the menu music starts here.
       splashDone: () => this.audio.play('click'),
+      buyLife: () => this.buyLife(),
+      adLife: () => void this.adLife(),
+      livesBack: () => this.closeLives(),
+      style: () => this.openStyle(),
+      styleBack: () => this.toMenu(),
+      squadColour: (i) => this.setStyle({ squad: i }),
+      enemyTheme: (i) => this.setStyle({ enemies: i }),
+      draw: () => void this.openDraw(),
+      drawSave: (url) => {
+        this.setStyle({ drawing: url });
+        this.openStyle();
+      },
+      drawCancel: () => this.openStyle(),
+      drawReset: () => this.setStyle({ drawing: '' }),
       setName: (name) => {
         this.save.name = cleanName(name);
         this.ui.setNameField(this.save.name);
@@ -141,6 +165,7 @@ export class Game {
       persist(this.save);
     });
 
+    this.loadSkin();
     this.toMenu();
   }
 
@@ -161,6 +186,12 @@ export class Game {
         return true;
       case 'paused':
         this.resume();
+        return true;
+      case 'lives':
+        this.closeLives();
+        return true;
+      case 'draw':
+        this.openStyle();
         return true;
       default:
         this.toMenu();
@@ -194,11 +225,14 @@ export class Game {
     this.gs.setMood(null);
     this.ui.hideBanner();
     this.leaveCoop();
+    this.applyLooks();
     persist(this.save);
     this.w.clear();
     this.ui.clearPops();
     this.me.squad.reset(statsOf(this.save).start);
     this.ui.setMenu(this.save, themeFor(this.save.level).name);
+    refreshLives(this.save);
+    this.ui.setLives(this.save);
     this.setState('menu');
     this.ui.show('menu');
     this.audio.music('menu');
@@ -274,6 +308,15 @@ export class Game {
       case 'coop':
         if (a === 'pause') this.toMenu();
         break;
+      case 'lives':
+        if (a === 'pause') this.closeLives();
+        break;
+      case 'style':
+        if (a === 'pause') this.toMenu();
+        break;
+      case 'draw':
+        if (a === 'pause') this.openStyle();
+        break;
       case 'playing':
         if (a === 'pause') this.pause();
         break;
@@ -293,9 +336,111 @@ export class Game {
     this.startRun();
   }
 
+  // ---------- Customise ----------
+
+  private openStyle(): void {
+    this.setState('style');
+    this.ui.renderStyle(this.save);
+    this.ui.show('style');
+  }
+
+  private async openDraw(): Promise<void> {
+    this.setState('draw');
+    await this.ui.drawEditor.open(this.save.style.drawing);
+    this.ui.show('draw');
+  }
+
+  private setStyle(change: Partial<SaveData['style']>): void {
+    Object.assign(this.save.style, change);
+    persist(this.save);
+    this.loadSkin();
+    this.applyLooks();
+    if (this.state === 'style') this.ui.renderStyle(this.save);
+  }
+
+  /** Turn the player's drawing into a texture for their squad (or drop it). */
+  private loadSkin(): void {
+    const url = this.save.style.drawing;
+    if (url === this.skinUrl) return;
+    this.skinUrl = url;
+    const old = this.skinTex;
+    this.skinTex = null;
+    old?.dispose();
+    if (url) {
+      new THREE.TextureLoader().load(url, (tex) => {
+        if (this.skinUrl !== url) return tex.dispose();
+        tex.colorSpace = THREE.SRGBColorSpace;
+        this.skinTex = tex;
+        this.applyLooks();
+      });
+    }
+    this.applyLooks();
+  }
+
+  /** Squad colours (yours and your partner's), your drawing, and the enemy colour theme. */
+  private applyLooks(): void {
+    const mine = this.save.style.squad;
+    let theirs = this.partnerColour ?? PARTNER_DEFAULT;
+    // Keep the two squads apart if you both picked the same colour.
+    if (theirs === mine) theirs = mine === PARTNER_DEFAULT ? 0 : PARTNER_DEFAULT;
+    for (const p of this.w.players) {
+      const me = p.idx === this.myIdx;
+      p.squad.setLook(squadLook(me ? mine : theirs));
+      p.squad.setSkin(me ? this.skinTex : null);
+    }
+    this.w.enemies.setTheme(enemyTheme(this.save.style.enemies));
+  }
+
+  // ---------- Lives ----------
+
+  /** Out of lives: show the refill screen, remembering where to go back to. */
+  private openLives(): void {
+    if (this.state !== 'lives') this.livesReturn = this.state;
+    refreshLives(this.save);
+    this.setState('lives');
+    this.ui.showLives(this.save);
+  }
+
+  private closeLives(): void {
+    const back = this.livesReturn;
+    if (back === 'result' || back === 'coop') {
+      this.setState(back);
+      this.ui.show(back);
+    } else {
+      this.toMenu();
+    }
+  }
+
+  private buyLife(): void {
+    refreshLives(this.save);
+    if (this.save.gems < LIFE_GEM_COST || this.save.lives >= MAX_LIVES) return;
+    this.save.gems -= LIFE_GEM_COST;
+    addLife(this.save);
+    persist(this.save);
+    this.audio.play('power', 0.6);
+    this.ui.setGems(this.save.gems);
+    this.ui.toast('+1 life');
+    this.closeLives();
+  }
+
+  private async adLife(): Promise<void> {
+    if (!rewardedReady() || !(await showRewarded())) return;
+    addLife(this.save);
+    persist(this.save);
+    this.ui.toast('+1 life');
+    this.closeLives();
+  }
+
   /** Solo, or as co-op host: build the level and run the simulation. */
   private startRun(): void {
     if (this.mode === 'guest') return;
+    // Every attempt uses a life; winning gives it back (so quitting can't dodge a loss).
+    if (!spendLife(this.save)) {
+      this.openLives();
+      return;
+    }
+    this.lifeSpent = true;
+    persist(this.save);
     const coop = this.mode === 'host' && this.partner;
     if (this.mode === 'host' && !coop) {
       this.ui.toast('Your friend is not connected, so this level is solo.');
@@ -317,6 +462,9 @@ export class Game {
   /** Co-op guest: the host started a level; mirror it. */
   private startGuestRun(level: number, run: number): void {
     this.run = run;
+    // Guests use a life too, but the host decides when to play, so they're never blocked.
+    this.lifeSpent = spendLife(this.save);
+    persist(this.save);
     this.w.setCoop(true);
     this.w.setLocalPlayer(1);
     this.w.players[1].stats = statsOf(this.save);
@@ -347,6 +495,9 @@ export class Game {
 
   private finish(won: boolean, progress: number): void {
     if (won && this.mode !== 'guest') this.save.level = this.level + 1;
+    const spent = this.lifeSpent;
+    this.lifeSpent = false;
+    if (won && spent) addLife(this.save);
     persist(this.save);
     if (!won) this.gs.setMood(null);
     this.audio.play(won ? 'win' : 'lose');
@@ -355,7 +506,7 @@ export class Game {
     this.ui.setBoss(null);
     this.ui.setSpectating(false);
     this.setState('result');
-    this.ui.showResult(won, this.level, progress, this.runGems, this.mode === 'solo' ? null : this.mode);
+    this.ui.showResult(won, this.level, progress, this.runGems, this.mode === 'solo' ? null : this.mode, !won && spent ? this.save.lives : null);
   }
 
   // ---------- Events: effects, sound, rewards ----------
@@ -373,8 +524,8 @@ export class Game {
       case 'kill': {
         const spec = ENEMY_SPECS[e.kind];
         const big = e.kind === 'brute' || e.kind === 'bearer' || e.kind === 'tyres' || e.kind === 'crate' || e.kind === 'barrier';
-        fx.burst(e.x, spec.height * 0.5, e.z, spec.color, big ? 20 : 14, big ? 7 : 6);
-        this.gs.flash(e.x, 1.2, e.z, spec.color, big ? 40 : 14);
+        fx.burst(e.x, spec.height * 0.5, e.z, this.w.enemies.colorOf(e.kind), big ? 20 : 14, big ? 7 : 6);
+        this.gs.flash(e.x, 1.2, e.z, this.w.enemies.colorOf(e.kind), big ? 40 : 14);
         if (e.kind !== 'boss') this.audio.play(big ? 'bigkill' : 'kill');
         break;
       }
@@ -391,7 +542,7 @@ export class Game {
       case 'hurt': {
         const sq = squadOf(e.p);
         this.popAt(`−${e.loss}`, sq.x, 1.8, sq.z, 'bad');
-        fx.burst(e.x, 0.8, e.z, ENEMY_SPECS[e.kind].color, 12, 6);
+        fx.burst(e.x, 0.8, e.z, this.w.enemies.colorOf(e.kind), 12, 6);
         this.audio.play('hurt', mine ? 1 : 0.4);
         if (mine) this.shake = 0.35;
         break;
@@ -462,7 +613,7 @@ export class Game {
         this.shake = Math.max(this.shake, 0.2);
         break;
       case 'bossdown':
-        fx.burst(e.x, 2, e.z, ENEMY_SPECS.boss.color, 70, 12, 0.22);
+        fx.burst(e.x, 2, e.z, this.w.enemies.colorOf('boss'), 70, 12, 0.22);
         fx.burst(e.x, 2, e.z, 0xffd23f, 30, 9);
         this.ui.setBoss(0);
         this.gs.flash(e.x, 3, e.z, 0xffd23f, 90);
@@ -491,6 +642,7 @@ export class Game {
 
   /** In co-op each squad shows its player's name; in solo, none. */
   private applyNames(): void {
+    this.applyLooks();
     const [p0, p1] = this.w.players;
     if (!this.inCoop || !p1.active) {
       p0.squad.setName(null);
@@ -501,6 +653,14 @@ export class Game {
     const theirs = (this.myIdx === 0 ? cleanName(this.guestMsg?.n) : this.hostName) || (this.myIdx === 0 ? 'Player 2' : 'Player 1');
     this.w.players[this.myIdx].squad.setName(`${mine} (you)`);
     this.w.players[1 - this.myIdx].squad.setName(theirs);
+  }
+
+  /** The partner's squad colour arrived (or changed) in a co-op message. */
+  private onPartnerColour(c: unknown): void {
+    const v = Number.isInteger(c) && (c as number) >= 0 && (c as number) < SQUAD_COLOURS.length ? (c as number) : null;
+    if (v === this.partnerColour) return;
+    this.partnerColour = v;
+    this.applyLooks();
   }
 
   private partnerAlive(): boolean {
@@ -592,6 +752,7 @@ export class Game {
     this.partner = false;
     this.guestMsg = null;
     this.hostName = '';
+    this.partnerColour = null;
     this.w.setCoop(false);
     this.w.setLocalPlayer(0);
     this.applyNames();
@@ -634,11 +795,13 @@ export class Game {
         this.w.players[1].squad.setTargetZ(Number(msg.z) || 0);
       }
       if (nameChanged) this.applyNames();
+      this.onPartnerColour(msg.c);
     } else if (this.mode === 'guest' && msg.r === 'h') {
       const nameChanged = cleanName(msg.n) !== this.hostName;
       this.hostName = cleanName(msg.n);
       this.onHostMsg(msg);
       if (nameChanged) this.applyNames();
+      this.onPartnerColour(msg.c);
     }
   }
 
@@ -678,8 +841,12 @@ export class Game {
         lv: stage === 'lobby' ? this.save.level : this.level,
         run: this.run,
         n: this.save.name,
+        c: this.save.style.squad,
       };
-      if (stage !== 'lobby') msg.snap = encodeSnap(this.sim, this.w, this.recent.map((r) => r.a));
+      if (stage !== 'lobby') {
+        const max = this.channel?.via === 'room' ? ROOM_MAX_BYTES : PEER_MAX_BYTES;
+        msg.snap = encodeSnap(this.sim, this.w, this.recent.map((r) => r.a), max);
+      }
       if (stage === 'result') msg.won = this.sim.result === 'won' ? 1 : 0;
       ch.send(msg);
     } else {
@@ -691,6 +858,7 @@ export class Game {
         z: Math.round(sq.targetZ * 100) / 100,
         st: [st.start, st.power, st.rate],
         n: this.save.name,
+        c: this.save.style.squad,
       };
       ch.send(msg);
     }
@@ -703,6 +871,15 @@ export class Game {
     const dt = this.lastFrame ? Math.min(MAX_FRAME, (now - this.lastFrame) / 1000) : STEP;
     this.lastFrame = now;
     this.trackPerformance(dt);
+
+    // Lives refill over time: keep the counter and countdown current on the menus.
+    if ((this.livesTick += dt) > 0.5) {
+      this.livesTick = 0;
+      if (this.state === 'menu' || this.state === 'lives' || this.state === 'result') {
+        refreshLives(this.save);
+        this.ui.setLives(this.save);
+      }
+    }
 
     const drag = this.input.consumeDrag();
     const dragY = this.input.consumeDragY();

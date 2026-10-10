@@ -1178,3 +1178,239 @@ input {
 body:has(#hud:not(.hidden)) #app-version {
   display: none;
 }
+
+/* ---------- Lives ---------- */
+
+.lives-chip {
+  align-self: center;
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 40px;
+  padding: 0 14px 0 8px;
+  border: 3px solid var(--ink);
+  border-radius: 999px;
+  background: linear-gradient(#2b1559, #1a0b3a);
+  box-shadow: 0 4px 0 var(--ink);
+  font-family: var(--display);
+  font-size: 20px;
+  color: #fff;
+  -webkit-text-stroke: 4px var(--ink);
+  paint-order: stroke fill;
+  font-variant-numeric: tabular-nums;
+}
+
+.heart-icon {
+  width: 26px;
+  height: 26px;
+  flex: none;
+}
+
+.lives-timer {
+  font-family: var(--body);
+  font-weight: 800;
+  font-size: 14px;
+  color: #ffc2d1;
+  -webkit-text-stroke: 0;
+}
+
+.lives-timer:empty {
+  display: none;
+}
+
+.lives-chip.empty {
+  background: linear-gradient(#5a1230, #33081b);
+}
+
+.ribbon-red {
+  background: linear-gradient(#ff7a8f, #c8102e);
+}
+
+.hearts {
+  display: flex;
+  gap: 6px;
+  justify-content: center;
+}
+
+.hearts svg {
+  width: 38px;
+  height: 38px;
+}
+
+.hearts svg.lost {
+  filter: grayscale(1) brightness(0.45);
+}
+
+.price {
+  display: inline-flex;
+  align-items: center;
+  gap: 2px;
+  margin-left: 6px;
+}
+
+.price .gem-icon {
+  width: 24px;
+  height: 24px;
+}
+
+#btn-life-ad small {
+  display: block;
+  font-size: 12px;
+  opacity: 0.8;
+  -webkit-text-stroke: 3px var(--ink);
+}
+
+.lives-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  font-weight: 800;
+  color: #ffc2d1;
+}
+
+.lives-note.hidden {
+  display: none;
+}
+
+/* ---------- Customise ---------- */
+
+.btn-pink {
+  --c1: #ff8ad8;
+  --c2: #e0237a;
+}
+
+.btn-slim {
+  min-height: 48px;
+  font-size: 20px;
+}
+
+.ribbon-pink {
+  background: linear-gradient(#ff8ad8, #e0237a);
+}
+
+.swatches {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 10px;
+}
+
+.swatch {
+  width: 44px;
+  height: 44px;
+  padding: 0;
+  border: 3px solid var(--ink);
+  border-radius: 50%;
+  background: var(--sw);
+  box-shadow: 0 3px 0 var(--ink);
+  cursor: pointer;
+}
+
+.swatch.theme {
+  width: auto;
+  height: 40px;
+  padding: 0 12px;
+  border-radius: 12px;
+  color: #fff;
+  font-family: var(--body);
+  font-weight: 900;
+  font-size: 13px;
+  letter-spacing: 0.04em;
+  text-shadow: 0 1px 0 var(--ink), 0 0 4px var(--ink);
+}
+
+.swatch[aria-checked='true'] {
+  outline: 3px solid #fff;
+  outline-offset: 3px;
+}
+
+.char-row {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+}
+
+.char-thumb {
+  width: 84px;
+  height: 84px;
+  flex: none;
+  display: grid;
+  place-items: center;
+  border: 3px solid var(--ink);
+  border-radius: 16px;
+  background: repeating-conic-gradient(#2b1559 0 25%, #22104a 0 50%) 0 0 / 16px 16px;
+}
+
+.char-thumb img,
+.char-thumb svg {
+  width: 72px;
+  height: 72px;
+  image-rendering: auto;
+}
+
+.draw-panel {
+  gap: 10px;
+}
+
+#draw-canvas {
+  width: min(78vw, 300px, 46vh);
+  aspect-ratio: 1;
+  border: 4px solid var(--ink);
+  border-radius: 16px;
+  background: repeating-conic-gradient(#2e1a5c 0 25%, #241247 0 50%) 0 0 / 24px 24px;
+  touch-action: none;
+  cursor: crosshair;
+}
+
+.palette {
+  display: flex;
+  flex-wrap: wrap;
+  justify-content: center;
+  gap: 6px;
+  max-width: 320px;
+}
+
+.palette .swatch {
+  width: 34px;
+  height: 34px;
+}
+
+.palette .swatch.eraser {
+  background: repeating-conic-gradient(#fff 0 25%, #bbb 0 50%) 0 0 / 10px 10px;
+}
+
+.draw-tools {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+
+.sizes {
+  display: flex;
+  gap: 6px;
+}
+
+.sizes button {
+  width: 36px;
+  height: 36px;
+  display: grid;
+  place-items: center;
+  padding: 0;
+  border: 3px solid var(--ink);
+  border-radius: 10px;
+  background: #2b1559;
+  cursor: pointer;
+}
+
+.sizes button i {
+  display: block;
+  border-radius: 50%;
+  background: #fff;
+}
+
+.sizes button[aria-pressed='true'] {
+  background: #e0237a;
+}

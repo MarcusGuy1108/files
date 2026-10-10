@@ -23,9 +23,12 @@ Lead a neon squad down the track. Your squad fires on its own; you steer.
 - **Enemies:** the number over each enemy is its health. If one reaches your squad, you lose that many members.
   - **Grunts** (red) and **brutes** (orange) walk straight at you.
   - **Dashers** (purple, from level 3) are fast and home in on your squad.
+  - **Skitters** (small and quick, from level 2) come in big swarms behind every wave. They're weak, but there are lots of them.
   - **Shield bearers** (blue, from level 4) carry a shield with its own number. It soaks up bullets and protects the enemies behind it until it breaks.
 - **Power-ups:** walk through one to pick it up. **Rapid fire** doubles your fire rate and **double damage** doubles your damage, each for 6 s. **Shield** stops enemies and meteors taking members for 15 s.
 - **Boss:** every level ends with one. Beat it to unlock the next level. Every few seconds it roars, summoning minions and, from level 3, hurling rocks at each squad (dodge the rings). If it reaches you, it trades its health for your members.
+- **Lives:** you have 5. Every attempt at a level uses one and winning gives it back, so only losses (or quitting mid-level) cost you. A life comes back every 20 minutes. When you run out you can buy one for 75 gems; watching an ad for a life arrives with the Android app's ads.
+- **Customise:** pick your squad colour (8 colours) and an enemy colour theme (Classic, Toxic, Frost, Gold, Ghost, Candy), or draw your own squad member in the built-in editor. In co-op your partner sees your colour (if you both pick the same one, their screen shows you in a different colour).
 - **Gems:** enemies sometimes drop gems that you must walk over to collect. There are also gems on the track, and a bonus for beating the boss and clearing the level. Enemies can only drop a handful of gems per level, however many there are. You keep the gems you picked up even if your squad is wiped out.
 - **Upgrades:** spend gems on starting **squad size**, **gun power** and **fire rate**. Prices rise with each level you buy.
 - **Sound:** synthwave music and sound effects, all generated in the browser. You can switch music and sound effects off from the menu or the pause screen.

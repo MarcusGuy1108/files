@@ -302,13 +302,13 @@ export class Sim {
     }
   }
 
-  /** A wide, dense charge of weak grunts. */
+  /** A wide, dense flood of skitters. */
   private stampede(): void {
-    const n = Math.min(24, 12 + this.plan.level);
+    const n = Math.min(48, 20 + 2 * this.plan.level);
     for (let i = 0; i < n; i++) {
-      const x = -TRACK_HALF + 0.5 + Math.random() * (TRACK_HALF * 2 - 1);
-      const z = -38 - Math.floor(i / 4) * 2.4 - Math.random();
-      this.w.enemies.spawn('grunt', x, z, Math.round((1.5 + Math.random() * 2) * this.plan.hpScale * this.toughness()));
+      const x = -TRACK_HALF + 0.4 + Math.random() * (TRACK_HALF * 2 - 0.8);
+      const z = -40 - Math.floor(i / 6) * 1.6 - Math.random();
+      this.w.enemies.spawn('skitter', x, z, Math.round((1 + Math.random() * 2) * this.plan.hpScale * this.toughness()));
     }
   }
 

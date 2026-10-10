@@ -20,6 +20,8 @@ export interface HostMsg {
   won?: 0 | 1;
   /** Host's display name. */
   n?: string;
+  /** Host's squad colour (index into SQUAD_COLOURS). */
+  c?: number;
   snap?: Snap;
 }
 
@@ -30,6 +32,8 @@ export interface GuestMsg {
   z?: number;
   /** Guest's display name. */
   n?: string;
+  /** Guest's squad colour (index into SQUAD_COLOURS). */
+  c?: number;
   /** The guest's own upgrades: [start count, power, rate]. */
   st: [number, number, number];
 }
@@ -56,9 +60,12 @@ export interface Snap {
 }
 
 const r2 = (v: number) => Math.round(v * 100) / 100;
-const MAX_BYTES = 3600;
+const r1 = (v: number) => Math.round(v * 10) / 10;
+/** The claude.ai room's message limit. Direct (PeerJS) connections can send more. */
+export const ROOM_MAX_BYTES = 3600;
+export const PEER_MAX_BYTES = 12000;
 
-export function encodeSnap(sim: Sim, w: World, recent: (number | string)[][]): Snap {
+export function encodeSnap(sim: Sim, w: World, recent: (number | string)[][], maxBytes = ROOM_MAX_BYTES): Snap {
   const snap: Snap = {
     d: r2(sim.distance),
     ph: PHASES.indexOf(sim.phase),
@@ -84,7 +91,7 @@ export function encodeSnap(sim: Sim, w: World, recent: (number | string)[][]): S
   const enemies = [...w.enemies.active].sort((a, b) => b.group.position.z - a.group.position.z);
   for (const e of enemies) {
     const p = e.group.position;
-    snap.e.push(e.id, ENEMY_KINDS.indexOf(e.kind), r2(p.x), r2(p.z), Math.ceil(e.hp), Math.ceil(e.shieldHp), e.walking ? 1 : 0);
+    snap.e.push(e.id, ENEMY_KINDS.indexOf(e.kind), r1(p.x), r1(p.z), Math.ceil(e.hp), Math.ceil(e.shieldHp), e.walking ? 1 : 0);
   }
   for (const pair of w.gates.pairs) {
     for (const g of pair.gates) snap.g.push(pair.id, r2(g.x0), r2(g.x1), r2(pair.z), g.value, r2(g.mul));
@@ -95,12 +102,21 @@ export function encodeSnap(sim: Sim, w: World, recent: (number | string)[][]): S
     snap.u.push(pu.id, POWER_KINDS.indexOf(pu.kind), r2(p.x), r2(p.z));
   }
 
-  // Stay inside the room's size limit on a very busy screen.
-  while (JSON.stringify(snap).length > MAX_BYTES) {
+  // Stay inside the size limit on a very busy screen (far-away enemies go first).
+  let size = JSON.stringify(snap).length;
+  if (size > maxBytes && snap.e.length > 70) {
+    // Estimate how many enemies to drop in one go rather than re-measuring each one.
+    const per = Math.max(20, JSON.stringify(snap.e).length / (snap.e.length / 7));
+    const drop = Math.min(snap.e.length / 7 - 10, Math.ceil((size - maxBytes) / per));
+    snap.e.length -= Math.max(0, drop) * 7;
+    size = JSON.stringify(snap).length;
+  }
+  while (size > maxBytes) {
     if (snap.m.length > 20) snap.m.length -= 10;
     else if (snap.e.length > 70) snap.e.length -= 7;
     else if (snap.ev.length > 6) snap.ev.shift();
     else break;
+    size = JSON.stringify(snap).length;
   }
   return snap;
 }

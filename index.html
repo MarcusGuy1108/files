@@ -33,6 +33,8 @@
       <symbol id="i-sound" viewBox="0 0 24 24"><path d="M4 9h4l5-4v14l-5-4H4z" /><path d="M16 8.5a5 5 0 0 1 0 7M18.5 6a8.5 8.5 0 0 1 0 12" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" /></symbol>
       <symbol id="i-users" viewBox="0 0 24 24"><circle cx="8" cy="8" r="3.4" /><circle cx="16.5" cy="8.5" r="2.8" /><path d="M2 20c0-3.6 2.7-6 6-6s6 2.4 6 6zM13.5 20c.3-2.3-.4-4-1.4-5.2 1.2-.7 2.6-1 4.4-1 2.9 0 5.5 2 5.5 6.2z" /></symbol>
       <symbol id="i-up" viewBox="0 0 24 24"><path d="M12 3l8 8h-5v9H9v-9H4z" /></symbol>
+      <symbol id="i-heart" viewBox="0 0 24 24"><path d="M12 21s-8.5-5.3-8.5-11.4A4.6 4.6 0 0 1 12 6.8a4.6 4.6 0 0 1 8.5 2.8C20.5 15.7 12 21 12 21z" fill="#ff4f7a" stroke="#3d0718" stroke-width="1.6" stroke-linejoin="round" /><path d="M7.4 8.6a2.3 2.3 0 0 1 2.4-1.4" fill="none" stroke="#ffd0dc" stroke-width="1.6" stroke-linecap="round" /></symbol>
+      <symbol id="i-brush" viewBox="0 0 24 24"><path d="M20.7 3.3a1.6 1.6 0 0 0-2.3 0L9.6 12l2.4 2.4 8.7-8.8a1.6 1.6 0 0 0 0-2.3zM8.4 13.2c-2.1 0-3.4 1.5-3.4 3.4 0 1.2-.8 2.1-2 2.6 1 1.2 2.6 1.8 4 1.8 2.7 0 4.6-2 4.6-4.6z" /></symbol>
     </svg>
 
     <div id="ui">
@@ -76,11 +78,13 @@
         </div>
         <h1 class="logo logo-menu" aria-label="Neon Legion"><span class="logo-neon">NEON</span><span class="logo-legion">LEGION</span></h1>
         <div class="menu-actions">
+          <div class="lives-chip" id="menu-lives-chip"><svg class="heart-icon"><use href="#i-heart" /></svg><span id="menu-lives">5</span><span id="menu-lives-timer" class="lives-timer"></span></div>
           <button id="btn-play" class="btn btn-gold btn-xl">PLAY</button>
           <div class="btn-row">
             <button id="btn-coop" class="btn btn-blue"><svg class="btn-ico"><use href="#i-users" /></svg>CO-OP</button>
             <button id="btn-shop" class="btn btn-purple"><svg class="btn-ico"><use href="#i-up" /></svg>UPGRADES</button>
           </div>
+          <button id="btn-style" class="btn btn-pink btn-slim"><svg class="btn-ico"><use href="#i-brush" /></svg>CUSTOMISE</button>
           <p class="hint ctl-touch">Drag to move · your squad fires on its own</p>
           <p class="hint ctl-keys">Arrows or WASD to move · your squad fires on its own · Esc pauses</p>
         </div>
@@ -124,6 +128,56 @@
         </div>
       </section>
 
+      <section id="screen-style" class="screen hidden">
+        <div class="panel">
+          <h2 class="ribbon ribbon-pink">CUSTOMISE</h2>
+          <span class="hud-tag">SQUAD COLOUR</span>
+          <div class="swatches" id="squad-swatches" role="radiogroup" aria-label="Squad colour"></div>
+          <span class="hud-tag">ENEMY COLOURS</span>
+          <div class="swatches" id="enemy-swatches" role="radiogroup" aria-label="Enemy colours"></div>
+          <span class="hud-tag">YOUR CHARACTER</span>
+          <div class="char-row">
+            <div class="char-thumb" id="char-thumb" aria-hidden="true"></div>
+            <div class="stack">
+              <button id="btn-draw" class="btn btn-gold">DRAW YOUR OWN</button>
+              <button id="btn-draw-reset" class="btn-small">USE STANDARD</button>
+            </div>
+          </div>
+          <button id="btn-style-back" class="btn btn-blue">DONE</button>
+        </div>
+      </section>
+
+      <section id="screen-draw" class="screen hidden">
+        <div class="panel draw-panel">
+          <h2 class="ribbon ribbon-pink">DRAW YOUR LEGION</h2>
+          <p class="sub">Draw one squad member. Your whole squad will look like it.</p>
+          <canvas id="draw-canvas" width="256" height="256" aria-label="Drawing area"></canvas>
+          <div class="palette" id="draw-palette"></div>
+          <div class="draw-tools">
+            <div class="sizes" id="draw-sizes"></div>
+            <button id="btn-draw-undo" class="btn-small">UNDO</button>
+            <button id="btn-draw-clear" class="btn-small">CLEAR</button>
+          </div>
+          <div class="btn-row">
+            <button id="btn-draw-cancel" class="btn btn-blue">CANCEL</button>
+            <button id="btn-draw-save" class="btn btn-gold">SAVE</button>
+          </div>
+        </div>
+      </section>
+
+      <section id="screen-lives" class="screen hidden">
+        <div class="panel">
+          <h2 class="ribbon ribbon-red">OUT OF LIVES</h2>
+          <div class="hearts" id="lives-hearts" aria-hidden="true"></div>
+          <p id="lives-sub" class="sub">Next free life in 20:00</p>
+          <div class="stack">
+            <button id="btn-life-gems" class="btn btn-gold">BUY A LIFE <span class="price"><svg class="gem-icon"><use href="#i-gem" /></svg><span id="life-cost">75</span></span></button>
+            <button id="btn-life-ad" class="btn btn-blue" disabled>WATCH AN AD FOR A LIFE <small>COMING SOON</small></button>
+            <button id="btn-lives-back" class="btn btn-purple">BACK</button>
+          </div>
+        </div>
+      </section>
+
       <section id="screen-pause" class="screen hidden">
         <div class="panel">
           <h2 id="pause-title" class="ribbon">PAUSED</h2>
@@ -143,6 +197,7 @@
         <div class="panel">
           <h2 id="result-title" class="ribbon">LEVEL 1 CLEARED</h2>
           <p id="result-sub" class="sub"></p>
+          <p id="result-lives" class="lives-note hidden"><svg class="heart-icon"><use href="#i-heart" /></svg><span></span></p>
           <div class="reward">
             <span class="reward-label">GEMS EARNED</span>
             <div class="gems-chip big"><svg class="gem-icon"><use href="#i-gem" /></svg>+<span id="result-gems">0</span></div>

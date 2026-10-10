@@ -37,6 +37,8 @@ export class Squad {
 
   private bodies: THREE.InstancedMesh;
   private guns: THREE.InstancedMesh;
+  /** A player-drawn character, shown instead of the standard body when set. */
+  private skin: THREE.InstancedMesh | null = null;
   /** Current formation offsets (x, z) per member; they ease towards the target slots. */
   private offsets = new Float32Array(MAX_VISIBLE * 2);
   private dummy = new THREE.Object3D();
@@ -78,6 +80,31 @@ export class Squad {
     this.nameSprite.visible = false;
     this.group.add(this.nameSprite);
     parent.add(this.group);
+  }
+
+  /** Draw members as the player's own drawing (a texture), or the standard figure with null. */
+  setSkin(tex: THREE.Texture | null): void {
+    if (tex && !this.skin) {
+      // Upright card leaning back a little towards the camera, feet on the ground.
+      const geo = new THREE.PlaneGeometry(0.7, 0.7);
+      geo.rotateX(-0.25);
+      geo.translate(0, 0.36, 0);
+      // Slightly dimmed so the glow effect doesn't wash the player's colours out.
+      const mat = new THREE.MeshBasicMaterial({ color: 0xb0b0b0, transparent: true, alphaTest: 0.3, side: THREE.DoubleSide });
+      this.skin = new THREE.InstancedMesh(geo, mat, MAX_VISIBLE);
+      this.skin.count = 0;
+      this.skin.frustumCulled = false;
+      this.group.add(this.skin);
+    }
+    if (this.skin) {
+      const mat = this.skin.material as THREE.MeshBasicMaterial;
+      if (mat.map !== tex) {
+        mat.map = tex;
+        mat.needsUpdate = true;
+      }
+      this.skin.visible = !!tex;
+    }
+    this.bodies.visible = this.guns.visible = !tex;
   }
 
   setLook(look: SquadLook): void {
@@ -180,10 +207,15 @@ export class Squad {
       this.dummy.updateMatrix();
       this.bodies.setMatrixAt(i, this.dummy.matrix);
       this.guns.setMatrixAt(i, this.dummy.matrix);
+      this.skin?.setMatrixAt(i, this.dummy.matrix);
     }
     this.bodies.count = this.guns.count = n;
     this.bodies.instanceMatrix.needsUpdate = true;
     this.guns.instanceMatrix.needsUpdate = true;
+    if (this.skin) {
+      this.skin.count = n;
+      this.skin.instanceMatrix.needsUpdate = true;
+    }
 
     this.label.set(fmtCount(this.count));
     this.labelSprite.visible = this.count > 0;

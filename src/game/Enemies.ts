@@ -1,4 +1,5 @@
 import * as THREE from 'three';
+import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { TextLabel, labelSprite } from '../render/Label';
 import { TRACK_HALF } from './Track';
 
@@ -6,8 +7,9 @@ import { TRACK_HALF } from './Track';
  * Everything on the track that has a health number. The last four are obstacles ("props"):
  * they don't move, but they block the way, take bullets, and cost members if you run into them.
  */
-export type EnemyKind = 'grunt' | 'brute' | 'dasher' | 'bearer' | 'boss' | 'barrel' | 'tyres' | 'crate' | 'barrier';
-export const ENEMY_KINDS: EnemyKind[] = ['grunt', 'brute', 'dasher', 'bearer', 'boss', 'barrel', 'tyres', 'crate', 'barrier'];
+export type EnemyKind = 'grunt' | 'brute' | 'dasher' | 'bearer' | 'boss' | 'barrel' | 'tyres' | 'crate' | 'barrier' | 'skitter';
+// New kinds go at the end: co-op snapshots send the index.
+export const ENEMY_KINDS: EnemyKind[] = ['grunt', 'brute', 'dasher', 'bearer', 'boss', 'barrel', 'tyres', 'crate', 'barrier', 'skitter'];
 
 interface KindSpec {
   radius: number;
@@ -35,6 +37,8 @@ export const ENEMY_SPECS: Record<EnemyKind, KindSpec> = {
   tyres: { radius: 0.7, height: 1.05, speed: 0, color: 0x2a2d38, drop: { chance: 0, count: 0 }, labelW: 1.5, stride: 0, prop: true },
   crate: { radius: 0.65, height: 1.2, speed: 0, color: 0x8a4dff, drop: { chance: 0.4, count: 1 }, labelW: 1.5, stride: 0, prop: true },
   barrier: { radius: 0.5, height: 1.3, speed: 0, color: 0x5d6478, drop: { chance: 0, count: 0 }, labelW: 1.8, stride: 0, prop: true, halfW: 1.9 },
+  // Small, quick and weak: they come in big swarms. Built from just two meshes so hordes stay cheap to draw.
+  skitter: { radius: 0.36, height: 0.7, speed: 3.6, color: 0xff4f9a, drop: { chance: 0.02, count: 1 }, labelW: 1.0, stride: 0 },
 };
 
 /** Half-width used for bullet hits and running into it. */
@@ -65,6 +69,8 @@ const DASHER_STEER = 2.4;
 const DROP_IN_Z = -50;
 const DROP_TIME = 0.55;
 const KNOCKBACK = 0.025;
+/** Beyond this distance enemies drop their small details (limbs, horns, eyes) to save draw calls. */
+const DETAIL_Z = -40;
 /** Brutes wind up, then charge, once they get this close. */
 const BRUTE_TRIGGER_Z = -26;
 const WINDUP = 0.7;
@@ -81,6 +87,9 @@ export interface Enemy {
   group: THREE.Group;
   body: THREE.Group;
   rig: Rig;
+  /** Small parts hidden at a distance. */
+  detail: THREE.Object3D[];
+  far: boolean;
   mat: THREE.MeshLambertMaterial;
   label: TextLabel;
   hp: number;
@@ -108,10 +117,15 @@ interface Rig {
   arms: THREE.Object3D[];
   head: THREE.Object3D | null;
   spin: THREE.Object3D | null;
+  /** Parts that can be hidden at a distance without changing the silhouette much. */
+  detail: THREE.Object3D[];
 }
 
 export class Enemies {
   readonly active: Enemy[] = [];
+  /** Every enemy ever created (pooled), so a colour theme can repaint them all. */
+  private all: Enemy[] = [];
+  private theme: Partial<Record<EnemyKind, number>> = {};
   private free: Record<EnemyKind, Enemy[]> = {
     grunt: [],
     brute: [],
@@ -122,6 +136,7 @@ export class Enemies {
     tyres: [],
     crate: [],
     barrier: [],
+    skitter: [],
   };
   private nextId = 1;
 
@@ -136,6 +151,7 @@ export class Enemies {
       ['tyres', 8],
       ['crate', 6],
       ['barrier', 6],
+      ['skitter', 60],
     ];
     for (const [kind, n] of prewarm) for (let i = 0; i < n; i++) this.free[kind].push(this.create(kind));
   }
@@ -156,6 +172,7 @@ export class Enemies {
     e.hopIn = 1.5 + Math.random() * 2.5;
     e.hopT = 0;
     e.lastX = x;
+    this.setFar(e, z < DETAIL_Z);
     e.group.position.set(x, 0, z);
     e.group.scale.setScalar(1);
     e.group.visible = true;
@@ -201,6 +218,28 @@ export class Enemies {
     return e.group.position.z + SHIELD.ahead;
   }
 
+  /** The colour an enemy kind is drawn in (after the player's chosen theme). */
+  colorOf(kind: EnemyKind): number {
+    return this.theme[kind] ?? ENEMY_SPECS[kind].color;
+  }
+
+  /** Repaint enemies with a colour theme (kinds missing from it keep their usual colour). */
+  setTheme(theme: Partial<Record<EnemyKind, number>>): void {
+    this.theme = theme;
+    for (const e of this.all) this.paint(e);
+  }
+
+  private paint(e: Enemy): void {
+    const c = this.colorOf(e.kind);
+    e.mat.color.setHex(c);
+    e.mat.emissive.setHex(c).multiplyScalar(0.25);
+  }
+
+  private setFar(e: Enemy, far: boolean): void {
+    e.far = far;
+    for (const o of e.detail) o.visible = !far;
+  }
+
   /** Is this boss mid-roar? (Sim uses the roar to time its summons.) */
   roaring(e: Enemy): boolean {
     return e.kind === 'boss' && e.mode === 'windup';
@@ -233,6 +272,10 @@ export class Enemies {
       if (e.kind === 'dasher' && p.z > -45 && squadXs.length && landed) {
         const step = DASHER_STEER * dt;
         p.x += Math.max(-step, Math.min(step, tx - p.x));
+      } else if (e.kind === 'skitter' && e.walking && landed && p.z > -60) {
+        // Skitters zig-zag quickly.
+        p.x += Math.cos(e.age * 3.4 + e.phase) * 1.8 * dt;
+        p.x = Math.max(-TRACK_HALF + 0.3, Math.min(TRACK_HALF - 0.3, p.x));
       } else if (e.kind === 'grunt' && e.walking && p.z > -60) {
         // Grunts weave as they come, so they don't march in a straight line.
         p.x += Math.cos(e.age * 1.7 + e.phase) * 0.9 * dt;
@@ -243,6 +286,7 @@ export class Enemies {
         this.release(e);
         continue;
       }
+      if (e.far !== p.z < DETAIL_Z) this.setFar(e, p.z < DETAIL_Z);
       this.animate(e, dt, time, tx);
     }
   }
@@ -328,6 +372,10 @@ export class Enemies {
       body.rotation.z = moving ? Math.sin(cyc) * 0.06 : 0;
     }
     if (e.kind === 'grunt' && e.hopT > 0) y += Math.sin((1 - e.hopT / 0.45) * Math.PI) * 0.9;
+    if (e.kind === 'skitter') {
+      y = moving ? Math.abs(Math.sin(e.age * 16 + e.phase)) * 0.12 : 0;
+      body.rotation.z = moving ? Math.sin(e.age * 16 + e.phase) * 0.15 : 0;
+    }
     body.position.y = y;
     body.rotation.x = lean;
     const face = Math.atan2(tx - p.x, Math.max(2, -p.z));
@@ -365,6 +413,7 @@ export class Enemies {
     });
     const { body, rig } = buildBody(kind, spec, mat);
     group.add(body);
+    const detail = kind === 'boss' ? [] : rig.detail;
 
     const label = new TextLabel(160, 80, { color: '#ffffff' });
     const sprite = labelSprite(label, spec.labelW, spec.labelW / 2);
@@ -384,12 +433,14 @@ export class Enemies {
 
     group.visible = false;
     this.parent.add(group);
-    return {
+    const e: Enemy = {
       id: 0,
       kind,
       group,
       body,
       rig,
+      detail,
+      far: false,
       mat,
       label,
       hp: 0,
@@ -408,6 +459,9 @@ export class Enemies {
       hopT: 0,
       lastX: 0,
     };
+    this.all.push(e);
+    this.paint(e);
+    return e;
   }
 }
 
@@ -516,10 +570,24 @@ function buildProp(kind: EnemyKind, spec: KindSpec, mat: THREE.Material): THREE.
 
 function buildBody(kind: EnemyKind, spec: KindSpec, mat: THREE.Material): { body: THREE.Group; rig: Rig } {
   const g = new THREE.Group();
-  const rig: Rig = { legs: [], arms: [], head: null, spin: null };
+  const rig: Rig = { legs: [], arms: [], head: null, spin: null, detail: [] };
   const r = spec.radius;
   const h = spec.height;
   if (spec.prop) return { body: buildProp(kind, spec, mat), rig };
+
+  if (kind === 'skitter') {
+    // A squat, spiky little critter: one body mesh and one mesh for both eyes.
+    const shell = new THREE.Mesh(new THREE.IcosahedronGeometry(r, 0), mat);
+    shell.scale.set(1.1, 0.75, 1);
+    shell.position.y = h * 0.45;
+    g.add(shell);
+    const eyeL = new THREE.BoxGeometry(r * 0.32, r * 0.18, 0.05).translate(-r * 0.32, h * 0.55, r * 0.86);
+    const eyeR = new THREE.BoxGeometry(r * 0.32, r * 0.18, 0.05).translate(r * 0.32, h * 0.55, r * 0.86);
+    const eyes = new THREE.Mesh(mergeGeometries([eyeL, eyeR])!, eyeMat);
+    g.add(eyes);
+    rig.detail.push(eyes);
+    return { body: g, rig };
+  }
 
   if (kind === 'dasher') {
     // A hovering, pointed drone with a spinning ring: reads as "fast" at a glance.
@@ -552,6 +620,7 @@ function buildBody(kind: EnemyKind, spec: KindSpec, mat: THREE.Material): { body
     const leg = limb(r * 0.32, hip, darkMat, s * r * 0.38, hip);
     g.add(leg);
     rig.legs.push(leg);
+    rig.detail.push(leg);
   }
   // Torso
   const torso = new THREE.Mesh(new THREE.CylinderGeometry(r * 0.7, r * 0.85, h * 0.45, 6), mat);
@@ -563,6 +632,7 @@ function buildBody(kind: EnemyKind, spec: KindSpec, mat: THREE.Material): { body
     const arm = limb(r * 0.26, h * 0.36, mat, s * r * 0.95, shoulder);
     g.add(arm);
     rig.arms.push(arm);
+    rig.detail.push(arm);
   }
 
   // Head with horns and glowing eyes facing the squad (+z).
@@ -575,6 +645,7 @@ function buildBody(kind: EnemyKind, spec: KindSpec, mat: THREE.Material): { body
     horn.position.set(s * r * 0.42, h * 0.16, 0);
     horn.rotation.z = -s * 0.5;
     head.add(horn);
+    rig.detail.push(horn);
     const eye = new THREE.Mesh(new THREE.BoxGeometry(r * 0.22, r * 0.12, 0.05), eyeMat);
     eye.position.set(s * r * 0.24, h * 0.03, r * 0.52);
     head.add(eye);
@@ -592,6 +663,7 @@ function buildBody(kind: EnemyKind, spec: KindSpec, mat: THREE.Material): { body
       const pad = new THREE.Mesh(new THREE.BoxGeometry(r * 0.5, r * 0.35, r * 0.7), darkMat);
       pad.position.set(s * r * 0.85, shoulder + r * 0.1, 0);
       g.add(pad);
+      rig.detail.push(pad);
     }
   }
   return { body: g, rig };

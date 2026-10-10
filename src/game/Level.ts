@@ -85,15 +85,15 @@ export function buildLevel(level: number, coop = false, seed = level * 9973 + 17
         shield: 0,
       });
     }
-    // From level 2 a swarm of weak grunts follows the wave: lots to mow down.
+    // From level 2 a swarm of skitters follows the wave: lots to mow down.
     if (!easy && level >= 2) {
-      const swarm = Math.min(12, 3 + level);
+      const swarm = Math.min(32, 6 + Math.floor(level * 1.6));
       const back = -Math.ceil(size / cols) * 2.3 - 2;
       for (let i = 0; i < swarm; i++) {
         enemies.push({
-          kind: 'grunt',
+          kind: 'skitter',
           x: range(-spread / 2, spread / 2),
-          dz: back - Math.floor(i / 5) * 1.6 - range(0, 0.6),
+          dz: back - Math.floor(i / 6) * 1.3 - range(0, 0.6),
           hp: Math.max(1, Math.round(range(1, 2.5) * hpScale)),
           shield: 0,
         });
@@ -233,7 +233,7 @@ export function buildLevel(level: number, coop = false, seed = level * 9973 + 17
         events.push({ at: pos - 2, type: 'wave', enemies: [{ kind: 'barrel', x, dz: 0, hp: Math.round(6 * hpScale), shield: 0 }] });
       }
       if (rnd() < 0.1) gems(pos + 14, 2);
-      pos += range(24, 32);
+      pos += range(21, 27);
     } else if (pick === 'gates') {
       gates(pos);
       pos += 32; // leave room so enemies aren't hidden right behind the gates
