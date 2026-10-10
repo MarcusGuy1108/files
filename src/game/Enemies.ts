@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { mergeGeometries } from 'three/examples/jsm/utils/BufferGeometryUtils.js';
 import { TextLabel, labelSprite } from '../render/Label';
+import { NumberLabels } from '../render/NumberLabels';
 import { TRACK_HALF } from './Track';
 
 /**
@@ -89,9 +90,10 @@ export interface Enemy {
   rig: Rig;
   /** Small parts hidden at a distance. */
   detail: THREE.Object3D[];
+  /** Body meshes, drawn through the per-kind batch (the meshes themselves stay hidden). */
+  parts: BodyPart[];
   far: boolean;
   mat: THREE.MeshLambertMaterial;
-  label: TextLabel;
   hp: number;
   maxHp: number;
   shieldHp: number;
@@ -111,6 +113,14 @@ export interface Enemy {
   lastX: number;
 }
 
+interface BodyPart {
+  mesh: THREE.Mesh;
+  /** Hidden when the enemy is far away. */
+  detail: boolean;
+  /** Uses the enemy's own (themed, flashing) colour rather than a shared material. */
+  tinted: boolean;
+}
+
 /** The moving parts of a body, for the walk cycle and gestures. */
 interface Rig {
   legs: THREE.Object3D[];
@@ -126,6 +136,10 @@ export class Enemies {
   /** Every enemy ever created (pooled), so a colour theme can repaint them all. */
   private all: Enemy[] = [];
   private theme: Partial<Record<EnemyKind, number>> = {};
+  /** Health numbers for every enemy, drawn in one batch. */
+  private labels: NumberLabels;
+  private skitters: SkitterBatch;
+  private bodies: BodyBatch;
   private free: Record<EnemyKind, Enemy[]> = {
     grunt: [],
     brute: [],
@@ -141,6 +155,9 @@ export class Enemies {
   private nextId = 1;
 
   constructor(private parent: THREE.Object3D) {
+    this.labels = new NumberLabels(parent);
+    this.skitters = new SkitterBatch(parent);
+    this.bodies = new BodyBatch(parent);
     const prewarm: [EnemyKind, number][] = [
       ['grunt', 60],
       ['brute', 10],
@@ -176,7 +193,6 @@ export class Enemies {
     e.group.position.set(x, 0, z);
     e.group.scale.setScalar(1);
     e.group.visible = true;
-    e.label.set(fmtCount(Math.ceil(hp)));
     if (e.shield) e.shield.visible = shieldHp > 0;
     e.shieldLabel?.set(String(Math.ceil(shieldHp)));
     this.active.push(e);
@@ -204,7 +220,6 @@ export class Enemies {
 
   setHp(e: Enemy, hp: number): void {
     e.hp = hp;
-    e.label.set(fmtCount(Math.max(0, Math.ceil(hp))));
   }
 
   setShield(e: Enemy, hp: number): void {
@@ -216,6 +231,22 @@ export class Enemies {
   /** z of the front face of an enemy's shield. */
   shieldZ(e: Enemy): number {
     return e.group.position.z + SHIELD.ahead;
+  }
+
+  /** Rebuild the batched visuals (health numbers, skitter swarm) once per frame, before drawing. */
+  syncVisuals(): void {
+    this.skitters.sync(this.active, this);
+    this.bodies.sync(this.active, this);
+    const L = this.labels;
+    L.begin();
+    for (const e of this.active) {
+      if (!e.group.visible) continue;
+      const spec = ENEMY_SPECS[e.kind];
+      const p = e.group.position;
+      // Same size and place as the old per-enemy label sprites.
+      L.add(fmtCount(Math.max(0, Math.ceil(e.hp))), p.x, p.y + spec.height + spec.labelW * 0.3, p.z, spec.labelW * 0.31, spec.labelW * 0.86, 0xffffff);
+    }
+    L.end();
   }
 
   /** The colour an enemy kind is drawn in (after the player's chosen theme). */
@@ -413,12 +444,17 @@ export class Enemies {
     });
     const { body, rig } = buildBody(kind, spec, mat);
     group.add(body);
+    // Leaf meshes of the body are drawn by the batch: one draw call per part for all enemies of a kind.
+    const parts: BodyPart[] = [];
+    body.traverse((o) => {
+      if (!(o instanceof THREE.Mesh) || o.children.length) return;
+      let detail = false;
+      for (let q: THREE.Object3D | null = o; q && q !== body; q = q.parent) if (rig.detail.includes(q)) detail = true;
+      parts.push({ mesh: o, detail, tinted: o.material === mat });
+      o.visible = false;
+    });
     const detail = kind === 'boss' ? [] : rig.detail;
 
-    const label = new TextLabel(160, 80, { color: '#ffffff' });
-    const sprite = labelSprite(label, spec.labelW, spec.labelW / 2);
-    sprite.position.y = spec.height + spec.labelW * 0.3;
-    group.add(sprite);
 
     let shield: THREE.Group | null = null;
     let shieldLabel: TextLabel | null = null;
@@ -440,9 +476,9 @@ export class Enemies {
       body,
       rig,
       detail,
+      parts,
       far: false,
       mat,
-      label,
       hp: 0,
       maxHp: 0,
       shieldHp: 0,
@@ -575,19 +611,8 @@ function buildBody(kind: EnemyKind, spec: KindSpec, mat: THREE.Material): { body
   const h = spec.height;
   if (spec.prop) return { body: buildProp(kind, spec, mat), rig };
 
-  if (kind === 'skitter') {
-    // A squat, spiky little critter: one body mesh and one mesh for both eyes.
-    const shell = new THREE.Mesh(new THREE.IcosahedronGeometry(r, 0), mat);
-    shell.scale.set(1.1, 0.75, 1);
-    shell.position.y = h * 0.45;
-    g.add(shell);
-    const eyeL = new THREE.BoxGeometry(r * 0.32, r * 0.18, 0.05).translate(-r * 0.32, h * 0.55, r * 0.86);
-    const eyeR = new THREE.BoxGeometry(r * 0.32, r * 0.18, 0.05).translate(r * 0.32, h * 0.55, r * 0.86);
-    const eyes = new THREE.Mesh(mergeGeometries([eyeL, eyeR])!, eyeMat);
-    g.add(eyes);
-    rig.detail.push(eyes);
-    return { body: g, rig };
-  }
+  // Skitters have no meshes of their own: the swarm is drawn in one batch (SkitterBatch).
+  if (kind === 'skitter') return { body: g, rig };
 
   if (kind === 'dasher') {
     // A hovering, pointed drone with a spinning ring: reads as "fast" at a glance.
@@ -667,4 +692,127 @@ function buildBody(kind: EnemyKind, spec: KindSpec, mat: THREE.Material): { body
     }
   }
   return { body: g, rig };
+}
+
+/** Every skitter drawn as one instanced body mesh plus one for the eyes. */
+class SkitterBatch {
+  private shell: THREE.InstancedMesh;
+  private eyes: THREE.InstancedMesh;
+  private tint = new THREE.Color();
+
+  constructor(parent: THREE.Object3D) {
+    const spec = ENEMY_SPECS.skitter;
+    const r = spec.radius;
+    const h = spec.height;
+    const MAX = 160;
+    const shellGeo = new THREE.IcosahedronGeometry(r, 0);
+    shellGeo.scale(1.1, 0.75, 1);
+    shellGeo.translate(0, h * 0.45, 0);
+    // White base with a faint glow; each instance's colour carries the theme and hit flash.
+    const shellMat = new THREE.MeshLambertMaterial({ color: 0xffffff, emissive: 0x241018, flatShading: true });
+    this.shell = new THREE.InstancedMesh(shellGeo, shellMat, MAX);
+    this.shell.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(MAX * 3), 3);
+    const eyeL = new THREE.BoxGeometry(r * 0.32, r * 0.18, 0.05).translate(-r * 0.32, h * 0.55, r * 0.86);
+    const eyeR = new THREE.BoxGeometry(r * 0.32, r * 0.18, 0.05).translate(r * 0.32, h * 0.55, r * 0.86);
+    this.eyes = new THREE.InstancedMesh(mergeGeometries([eyeL, eyeR])!, eyeMat, MAX);
+    for (const m of [this.shell, this.eyes]) {
+      m.count = 0;
+      m.frustumCulled = false;
+      parent.add(m);
+    }
+  }
+
+  sync(active: Enemy[], enemies: Enemies): void {
+    const max = this.shell.instanceMatrix.count;
+    const base = enemies.colorOf('skitter');
+    let n = 0;
+    let ne = 0;
+    for (const e of active) {
+      if (e.kind !== 'skitter' || !e.group.visible || n >= max) continue;
+      e.body.updateWorldMatrix(true, false);
+      this.shell.setMatrixAt(n, e.body.matrixWorld);
+      // Brighter than the base colour so it glows like the others; flashes white-hot when hit.
+      this.tint.setHex(base).multiplyScalar(e.flash > 0 ? 2.6 : 1.15);
+      this.shell.setColorAt(n, this.tint);
+      n++;
+      if (!e.far) this.eyes.setMatrixAt(ne++, e.body.matrixWorld);
+    }
+    this.shell.count = n;
+    this.eyes.count = ne;
+    this.shell.instanceMatrix.needsUpdate = true;
+    this.eyes.instanceMatrix.needsUpdate = true;
+    if (this.shell.instanceColor) this.shell.instanceColor.needsUpdate = true;
+  }
+}
+
+/**
+ * Draws every enemy body as instanced meshes: one InstancedMesh per body part per kind
+ * (all grunt heads together, all grunt left legs together…). Each enemy keeps its own
+ * hidden meshes for animation; their world matrices are copied into the batch each frame.
+ */
+class BodyBatch {
+  private kinds = new Map<EnemyKind, THREE.InstancedMesh[]>();
+  private tintMat = new THREE.MeshLambertMaterial({ color: 0xffffff, flatShading: true });
+  private tint = new THREE.Color();
+  private counts: number[] = [];
+  private lists = new Map<EnemyKind, Enemy[]>();
+
+  constructor(private parent: THREE.Object3D) {}
+
+  /** The batch for a kind, rebuilt bigger when there are more enemies than slots. */
+  private batch(e: Enemy, need: number): THREE.InstancedMesh[] {
+    let b = this.kinds.get(e.kind);
+    if (b && b[0].instanceMatrix.count >= need) return b;
+    const cap = Math.max(8, Math.ceil(need * 1.5), b ? b[0].instanceMatrix.count * 2 : 0);
+    if (b) for (const m of b) (this.parent.remove(m), m.dispose());
+    b = e.parts.map((part) => {
+      const m = new THREE.InstancedMesh(part.mesh.geometry, part.tinted ? this.tintMat : part.mesh.material, cap);
+      if (part.tinted) m.instanceColor = new THREE.InstancedBufferAttribute(new Float32Array(cap * 3), 3);
+      m.count = 0;
+      m.frustumCulled = false;
+      this.parent.add(m);
+      return m;
+    });
+    this.kinds.set(e.kind, b);
+    return b;
+  }
+
+  sync(active: Enemy[], enemies: Enemies): void {
+    // Group the visible enemies by kind (lists are reused to avoid garbage every frame).
+    const totals = this.lists;
+    for (const list of totals.values()) list.length = 0;
+    for (const e of active) {
+      if (!e.group.visible || !e.parts.length) continue;
+      const list = totals.get(e.kind);
+      if (list) list.push(e);
+      else totals.set(e.kind, [e]);
+    }
+    for (const [kind, b] of this.kinds) if (!totals.get(kind)?.length) for (const m of b) m.count = 0;
+    for (const [kind, list] of totals) {
+      if (!list.length) continue;
+      const b = this.batch(list[0], list.length);
+      const counts = this.counts;
+      counts.length = b.length;
+      counts.fill(0);
+      const base = enemies.colorOf(kind);
+      for (const e of list) {
+        e.group.updateWorldMatrix(true, true);
+        // The enemy's glow and hit flash ride on its colour.
+        this.tint.setHex(base).multiplyScalar(1 + 0.25 * e.mat.emissiveIntensity);
+        for (let j = 0; j < e.parts.length; j++) {
+          const part = e.parts[j];
+          if (part.detail && e.far) continue;
+          const m = b[j];
+          const k = counts[j]++;
+          m.setMatrixAt(k, part.mesh.matrixWorld);
+          if (part.tinted) m.setColorAt(k, this.tint);
+        }
+      }
+      for (let j = 0; j < b.length; j++) {
+        b[j].count = counts[j];
+        b[j].instanceMatrix.needsUpdate = true;
+        if (b[j].instanceColor) b[j].instanceColor!.needsUpdate = true;
+      }
+    }
+  }
 }

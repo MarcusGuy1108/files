@@ -87,6 +87,7 @@ export class Game {
   private acc = 0;
   private lastFrame = 0;
   private frameEma = 16;
+  private slowChecks = 0;
   /** Development only: simulation speed multiplier for automated balance runs. */
   testSpeed = 1;
   private perfTimer = 0;
@@ -959,13 +960,24 @@ export class Game {
   }
 
   /** Drop bloom, then resolution, if frames are consistently slow while playing. */
+  /**
+   * Adaptive quality: if play runs below ~52 fps for two checks in a row (3 s), drop one
+   * quality level. Skips the first second of a level, when loading can cause a hitch.
+   */
   private trackPerformance(dt: number): void {
-    if (this.state !== 'playing') return;
-    this.frameEma += (dt * 1000 - this.frameEma) * 0.05;
-    this.perfTimer += dt;
-    if (this.perfTimer > 2.5) {
-      if (this.frameEma > 22) this.gs.degrade();
+    if (this.state !== 'playing' || this.stateTime < 1 || document.hidden) {
       this.perfTimer = 0;
+      return;
+    }
+    this.frameEma += (dt * 1000 - this.frameEma) * 0.08;
+    this.perfTimer += dt;
+    if (this.perfTimer > 1.5) {
+      this.perfTimer = 0;
+      this.slowChecks = this.frameEma > 19 ? this.slowChecks + 1 : 0;
+      if (this.slowChecks >= 2) {
+        this.slowChecks = 0;
+        this.gs.degrade();
+      }
     }
   }
 }

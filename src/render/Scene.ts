@@ -26,6 +26,16 @@ export function isWebGLAvailable(): boolean {
   }
 }
 
+/** Quality levels, best first: glow (bloom) and the highest pixel ratio allowed. */
+const QUALITY = [
+  { bloom: true, maxPixelRatio: 2 },
+  { bloom: true, maxPixelRatio: 1.25 },
+  { bloom: false, maxPixelRatio: 1.25 },
+  { bloom: false, maxPixelRatio: 1 },
+  { bloom: false, maxPixelRatio: 0.8 },
+];
+const QUALITY_KEY = 'neon-legion:quality';
+
 export class GameScene {
   readonly renderer: THREE.WebGLRenderer;
   readonly scene = new THREE.Scene();
@@ -48,7 +58,9 @@ export class GameScene {
   private composer: EffectComposer;
   private bloomPass: UnrealBloomPass;
   private bloomEnabled = true;
-  private pixelRatio = Math.min(window.devicePixelRatio || 1, 2);
+  private pixelRatio = 1;
+  /** Index into QUALITY: 0 is best. Saved per device so the next visit starts there. */
+  private tier = 0;
 
   constructor(canvas: HTMLCanvasElement) {
     this.renderer = new THREE.WebGLRenderer({ canvas, antialias: true, powerPreference: 'high-performance' });
@@ -85,11 +97,16 @@ export class GameScene {
     this.composer.addPass(this.bloomPass);
     this.composer.addPass(new OutputPass());
 
-    // Very low-memory devices start without bloom; others adapt at runtime.
+    let tier = 0;
+    try {
+      tier = Number(localStorage.getItem(QUALITY_KEY)) || 0;
+    } catch {
+      /* storage blocked */
+    }
+    // Very low-memory devices skip the glow from the start; others adapt at runtime.
     const mem = (navigator as Navigator & { deviceMemory?: number }).deviceMemory;
-    if (mem !== undefined && mem <= 2) this.bloomEnabled = false;
-
-    this.resize();
+    if (mem !== undefined && mem <= 2) tier = Math.max(tier, 2);
+    this.applyTier(Math.min(QUALITY.length - 1, Math.max(0, tier)));
   }
 
   resize(): void {
@@ -169,16 +186,25 @@ export class GameScene {
   }
 
   /** Step quality down one notch. Returns false when already at the floor. */
+  private applyTier(tier: number): void {
+    this.tier = tier;
+    const q = QUALITY[tier];
+    // Phones have very dense screens; past 1.5× the extra pixels cost far more than they show.
+    const cap = matchMedia('(pointer: coarse)').matches ? 1.5 : 2;
+    this.pixelRatio = Math.min(window.devicePixelRatio || 1, cap, q.maxPixelRatio);
+    this.bloomEnabled = q.bloom;
+    this.resize();
+  }
+
+  /** Step down one quality level (the game calls this when frames run slow). */
   degrade(): boolean {
-    if (this.bloomEnabled) {
-      this.bloomEnabled = false;
-      return true;
+    if (this.tier >= QUALITY.length - 1) return false;
+    this.applyTier(this.tier + 1);
+    try {
+      localStorage.setItem(QUALITY_KEY, String(this.tier));
+    } catch {
+      /* storage blocked */
     }
-    if (this.pixelRatio > 0.75) {
-      this.pixelRatio = Math.max(0.75, this.pixelRatio - 0.25);
-      this.resize();
-      return true;
-    }
-    return false;
+    return true;
   }
 }

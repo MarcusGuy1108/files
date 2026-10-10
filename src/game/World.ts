@@ -85,6 +85,7 @@ export class World {
   }
 
   sync(time: number): void {
+    this.enemies.syncVisuals();
     this.bullets.sync();
     this.gems.sync(time);
     this.fx.sync();
